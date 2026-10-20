@@ -61,6 +61,8 @@ from kivy.core.window import Window
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.filechooser import FileChooserListView
 
 Window.softinput_mode = "below_target"
 
@@ -75,10 +77,15 @@ TEST_RESULT_RELATIVE_PATH = Path("yj64-test-result.json")
 class YJ64BaseApp(App):
     def build(self):
         from message_distributor import MessageDistributor
+        from chat_workspace import ChatWorkspace
         self.message_distributor = MessageDistributor()
-        self.common_history: list[dict[str, str]] = []
+        self.workspace = ChatWorkspace(self.user_data_dir)
+        chats = self.workspace.list_chats()
+        self.current_chat_id = str(chats[0]["id"])
+        self.common_history: list[dict[str, str]] = self.workspace.load_messages(self.current_chat_id)
         self.private_histories: dict[str, list[dict[str, str]]] = {}
         self.practical_mode = False
+        self.critique_mode = False
         self.consensus_reached = False
         self.consensus_summary = ""
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
@@ -87,6 +94,8 @@ class YJ64BaseApp(App):
             text="Starting embedded diagnostic agent...",
             halign="left",
             valign="top",
+            size_hint_y=None,
+            height=90,
         )
         self.status.bind(
             size=lambda instance, value: setattr(instance, "text_size", value)
@@ -146,7 +155,7 @@ class YJ64BaseApp(App):
             height=42,
         ))
         self.chat_output = TextInput(
-            text="The successful generation test will appear here.",
+            text=self._render_history(),
             readonly=True,
             multiline=True,
             size_hint_y=None,
@@ -176,6 +185,37 @@ class YJ64BaseApp(App):
         chat_send.bind(on_release=self._send_llm_chat)
         chat_row.add_widget(chat_send)
         root.add_widget(chat_row)
+
+        workspace_row = BoxLayout(
+            spacing=8, size_hint_y=None, height=54,
+        )
+        chats_button = Button(text="CHATS", size_hint_x=1)
+        chats_button.bind(on_release=self._show_chats)
+        new_chat_button = Button(text="NEW CHAT", size_hint_x=1)
+        new_chat_button.bind(on_release=self._new_chat)
+        attach_button = Button(text="ATTACH FILE", size_hint_x=1)
+        attach_button.bind(on_release=self._attach_file)
+        workspace_row.add_widget(chats_button)
+        workspace_row.add_widget(new_chat_button)
+        workspace_row.add_widget(attach_button)
+        root.add_widget(workspace_row)
+
+        modes_row = BoxLayout(
+            spacing=8, size_hint_y=None, height=54,
+        )
+        self.critique_mode_button = Button(
+            text="CRITIQUE PROJECT: OFF",
+            background_color=(0.15, 0.65, 0.25, 1),
+        )
+        self.critique_mode_button.bind(on_release=self._toggle_critique_mode)
+        skills_button = Button(text="SKILLS FILE")
+        skills_button.bind(on_release=self._open_skills_editor)
+        remote_button = Button(text="REMOTE PARTICIPANT (STUB)")
+        remote_button.bind(on_release=self._open_remote_participant)
+        modes_row.add_widget(self.critique_mode_button)
+        modes_row.add_widget(skills_button)
+        modes_row.add_widget(remote_button)
+        root.add_widget(modes_row)
 
         practical_row = BoxLayout(
             spacing=12,
@@ -238,6 +278,11 @@ class YJ64BaseApp(App):
         root.add_widget(participant_column)
         self._refresh_participant_buttons()
 
+        root.size_hint_y = None
+        root.bind(minimum_height=root.setter("height"))
+        scroll = ScrollView(do_scroll_x=False, bar_width=8)
+        scroll.add_widget(root)
+
         self._write_main_pid()
         self._append_report(
             "base_ui_ready",
@@ -249,7 +294,185 @@ class YJ64BaseApp(App):
         Clock.schedule_interval(self._refresh_status, 1.0)
         Clock.schedule_interval(self._refresh_participant_buttons, 1.0)
         Clock.schedule_interval(self._poll_test_command, 0.5)
-        return root
+        self._append_report(
+            "workspace_opened",
+            chat_id=self.current_chat_id,
+            chat_count=len(self.workspace.list_chats()),
+            skills_path=str(self.workspace.skills_path),
+        )
+        return scroll
+
+    def _render_history(self) -> str:
+        rendered = []
+        for item in self.common_history:
+            role = "Owner" if item.get("role") == "user" else "YJ-64"
+            rendered.append(f"{role}:\n{item.get('content', '')}")
+        return "\n\n".join(rendered) or "New chat. Write a message below."
+
+    def _save_common_history(self) -> None:
+        self.workspace.save_messages(self.current_chat_id, self.common_history)
+
+    def _select_chat(self, chat_id: str, popup: Popup) -> None:
+        popup.dismiss()
+        self.current_chat_id = chat_id
+        self.common_history = self.workspace.load_messages(chat_id)
+        self.chat_output.text = self._render_history()
+        self.consensus_reached = False
+        self.implementation_button.disabled = True
+        self._append_report("workspace_chat_selected", chat_id=chat_id)
+        self.status.text = f"Opened chat {chat_id[:8]} with {len(self.common_history)} saved messages."
+
+    def _show_chats(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        listing = ScrollView(do_scroll_x=False)
+        items = BoxLayout(orientation="vertical", spacing=6, size_hint_y=None)
+        items.bind(minimum_height=items.setter("height"))
+        popup = Popup(title="SAVED CHATS", content=content, size_hint=(0.94, 0.86))
+        for item in self.workspace.list_chats():
+            title = str(item.get("title") or "Untitled chat")
+            button = Button(
+                text=f"{title}\n{str(item['id'])[:8]}",
+                size_hint_y=None, height=62,
+            )
+            button.bind(
+                on_release=lambda _btn, chat_id=str(item["id"]):
+                self._select_chat(chat_id, popup)
+            )
+            items.add_widget(button)
+        listing.add_widget(items)
+        content.add_widget(listing)
+        branch_button = Button(
+            text="CREATE BRANCH FROM CURRENT CHAT",
+            size_hint_y=None, height=52,
+        )
+        def create_branch(*_args: Any) -> None:
+            parent = self.current_chat_id
+            new_id = self.workspace.create_chat("Ветка обсуждения", parent_id=parent)
+            self.workspace.save_messages(new_id, list(self.common_history))
+            self._select_chat(new_id, popup)
+            self._append_report("workspace_branch_created", chat_id=new_id, parent_id=parent)
+        branch_button.bind(on_release=create_branch)
+        content.add_widget(branch_button)
+        close = Button(text="CLOSE", size_hint_y=None, height=48)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+
+    def _new_chat(self, *_: Any) -> None:
+        self._save_common_history()
+        self.current_chat_id = self.workspace.create_chat("Новый чат")
+        self.common_history = []
+        self.chat_output.text = self._render_history()
+        self.consensus_reached = False
+        self.implementation_button.disabled = True
+        self._append_report("workspace_chat_created", chat_id=self.current_chat_id)
+        self.status.text = "New local chat created."
+
+    def _toggle_critique_mode(self, *_: Any) -> None:
+        self.critique_mode = not self.critique_mode
+        self.critique_mode_button.text = (
+            "CRITIQUE PROJECT: ON" if self.critique_mode else "CRITIQUE PROJECT: OFF"
+        )
+        self.critique_mode_button.background_color = (
+            (0.85, 0.15, 0.15, 1) if self.critique_mode else (0.15, 0.65, 0.25, 1)
+        )
+        self._append_report("critique_mode_changed", enabled=self.critique_mode)
+        self.status.text = (
+            "Critique mode ON: models must identify flaws, risks, and counter-evidence."
+            if self.critique_mode else "Critique mode OFF: normal instructions restored."
+        )
+
+    def _open_skills_editor(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        editor = TextInput(text=self.workspace.read_skills(), multiline=True)
+        content.add_widget(editor)
+        status = Label(text=f"Stored locally: {self.workspace.skills_path}", size_hint_y=None, height=44)
+        content.add_widget(status)
+        buttons = BoxLayout(size_hint_y=None, height=52, spacing=8)
+        save = Button(text="SAVE SKILLS")
+        close = Button(text="CLOSE")
+        buttons.add_widget(save)
+        buttons.add_widget(close)
+        content.add_widget(buttons)
+        popup = Popup(title="LOCAL SKILLS FILE", content=content, size_hint=(0.96, 0.9))
+        def save_skills(*_args: Any) -> None:
+            self.workspace.write_skills(editor.text)
+            self._append_report("skills_file_saved", character_count=len(editor.text))
+            status.text = "Saved locally. Instructions are added to future chat prompts."
+        save.bind(on_release=save_skills)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _attach_file(self, *_: Any) -> None:
+        preferred = Path("/storage/emulated/0/Download")
+        start_path = preferred if preferred.is_dir() else Path(self.user_data_dir)
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        chooser = FileChooserListView(path=str(start_path), filters=["*"])
+        content.add_widget(chooser)
+        note = Label(
+            text="Text files are embedded in the prompt (max 64 KB). Other files are recorded by name only; binary/multimedia transfer is not yet implemented.",
+            size_hint_y=None, height=58,
+        )
+        content.add_widget(note)
+        buttons = BoxLayout(size_hint_y=None, height=52, spacing=8)
+        attach = Button(text="ATTACH SELECTED")
+        close = Button(text="CLOSE")
+        buttons.add_widget(attach)
+        buttons.add_widget(close)
+        content.add_widget(buttons)
+        popup = Popup(title="ATTACH A FILE", content=content, size_hint=(0.97, 0.92))
+        def attach_selected(*_args: Any) -> None:
+            if not chooser.selection:
+                note.text = "Select a file first."
+                return
+            path = Path(chooser.selection[0])
+            if not path.is_file():
+                note.text = "Select a file, not a folder."
+                return
+            suffix = path.suffix.lower()
+            text_suffixes = {".txt", ".md", ".json", ".csv", ".py", ".yaml", ".yml", ".xml", ".log"}
+            try:
+                if suffix in text_suffixes:
+                    with path.open("rb") as handle:
+                        raw = handle.read(65537)
+                    if len(raw) > 65536:
+                        note.text = "Text file exceeds 64 KB; not attached. Use a smaller excerpt."
+                        return
+                    body = raw.decode("utf-8", errors="replace")
+                    self.chat_input.text += f"\n\n[ATTACHED TEXT FILE: {path.name}]\n{body}\n[END ATTACHMENT]\n"
+                    self._append_report("chat_text_file_attached", name=path.name, bytes=len(raw))
+                    note.text = f"Text contents added to message: {path.name}"
+                else:
+                    self.chat_input.text += f"\n\n[ATTACHMENT METADATA: {path.name}; type={suffix or 'unknown'}; content not transmitted]\n"
+                    self._append_report(
+                        "chat_binary_attachment_selected",
+                        name=path.name, suffix=suffix, transmitted=False,
+                    )
+                    note.text = "File name added only. This file's binary contents have NOT been sent to an LLM."
+                attach.disabled = True
+            except OSError as exc:
+                note.text = f"Could not read file: {type(exc).__name__}: {exc}"
+                self._append_report("chat_attachment_failed", path=str(path), error=str(exc))
+        attach.bind(on_release=attach_selected)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _open_remote_participant(self, *_: Any) -> None:
+        from remote_participant import get_status
+        state = get_status()
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="REMOTE PARTICIPANT — PLACEHOLDER ONLY\n\n"
+                 + state.message
+                 + "\n\nNo network connection or remote command is attempted. "
+                   "We will design the administrator's computer module in the next step.",
+        ))
+        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        content.add_widget(close)
+        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.94, 0.58))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        self._append_report("remote_participant_placeholder_opened", connected=False)
 
     def _toggle_practical_mode(self, *_: Any) -> None:
         self.practical_mode = not self.practical_mode
@@ -310,35 +533,39 @@ class YJ64BaseApp(App):
         self._send_llm_chat()
 
     def _practical_instructions(self, prompt: str, implementation: bool = False) -> str:
-        if not self.practical_mode:
+        sections: list[str] = []
+        if self.critique_mode:
+            sections.append(
+                "YJ-64 CRITIQUE PROJECT MODE: critically inspect assumptions, identify "
+                "failure modes and counter-evidence, separate facts from speculation, "
+                "and suggest tests that could disprove the proposal. Be constructive."
+            )
+        if self.practical_mode:
+            if implementation:
+                sections.append(
+                    "YJ-64 PRACTICAL ACTION PROTOCOL. Phase: IMPLEMENTATION DRAFT. "
+                    "Provide exact files, complete patches, integration points, tests, "
+                    "rollback steps, and unknowns. Do not claim repository edits or execution "
+                    "without evidence. No verified repository-writing agent is installed. "
+                    "End with [IMPLEMENTATION DRAFT]."
+                )
+            else:
+                sections.append(
+                    "YJ-64 PRACTICAL ACTION PROTOCOL. Give ordered actionable steps, files/tools, "
+                    "dependencies, risks, and testable completion criteria. Separate verified "
+                    "facts from assumptions. End with [CONSENSUS: APPROVE] only when you agree "
+                    "with no unresolved blocker, otherwise [CONSENSUS: OBJECT]. Do not imitate "
+                    "another participant's vote without independent assessment."
+                )
+        try:
+            skills = self.workspace.read_skills().strip()
+        except (OSError, AttributeError):
+            skills = ""
+        if skills:
+            sections.append("YJ-64 LOCAL SKILLS (user-editable instructions):\n" + skills[:12000])
+        if not sections:
             return prompt
-        if implementation:
-            rules = (
-                "YJ-64 PRACTICAL ACTION PROTOCOL. Phase: IMPLEMENTATION DRAFT. "
-                "Use the consensus-approved discussion and provide a concrete, reviewable "
-                "implementation proposal: identify exact files, show complete patches, "
-                "describe integration points, list tests and rollback steps, and identify "
-                "unknowns. Do not claim repository edits, external actions, or code execution "
-                "unless a connected action agent actually performed and verified them. "
-                "This installation currently provides LLM response routes, not a verified "
-                "repository-writing action agent. End with [IMPLEMENTATION DRAFT].\n\n"
-                "USER TASK:\n"
-            )
-        else:
-            rules = (
-                "YJ-64 PRACTICAL ACTION PROTOCOL. Phase: PRACTICAL ACTION DISCUSSION. "
-                "Move from abstract discussion to specific actionable proposals; state "
-                "the objective, ordered steps, required files/tools, dependencies, risks, "
-                "and a testable completion criterion; distinguish verified facts from "
-                "assumptions; do not claim actions were executed unless evidence proves it. "
-                "Consider prior messages and explicitly address other participants' proposals. "
-                "End with exactly one consensus marker: [CONSENSUS: APPROVE] only if you "
-                "support the shared plan and have no unresolved blocker, or "
-                "[CONSENSUS: OBJECT] if you disagree or need a blocker resolved. Do not "
-                "mark approval merely because other participants did so.\n\n"
-                "USER QUESTION / TASK:\n"
-            )
-        return rules + prompt
+        return "\n\n".join(sections) + "\n\nUSER TASK:\n" + prompt
 
     def _toggle_request_mode(self, *_: Any) -> None:
         mode = self.message_distributor.toggle_mode()
@@ -466,7 +693,9 @@ class YJ64BaseApp(App):
             model=status["model"],
         )
 
-        history = self.private_histories.setdefault(participant_name, [])
+        history = self.private_histories.setdefault(
+            participant_name, self.workspace.load_named_history(participant_name)
+        )
         output_lines = [
             f"{'You' if item.get('role') == 'user' else participant_name}:\n{item.get('content', '')}"
             for item in history
@@ -615,6 +844,9 @@ class YJ64BaseApp(App):
                             {"role": "assistant", "content": text_value},
                         ]
                         self.private_histories.setdefault(participant_name, []).extend(exchange)
+                        self.workspace.save_named_history(
+                            participant_name, self.private_histories[participant_name]
+                        )
                         last_exchange["messages"] = exchange
                         last_exchange["published"] = False
                         history_text = "\n\n".join(
@@ -1410,6 +1642,7 @@ class YJ64BaseApp(App):
                             broadcast=True,
                         )
                 self.common_history.extend(history_additions)
+                self._save_common_history()
                 if self.practical_mode and not implementation_request:
                     votes = {
                         name: (
@@ -1467,6 +1700,7 @@ class YJ64BaseApp(App):
                     failed=len(targets) - successful,
                 )
                 self.chat_output.text += "\n\n" + "\n\n".join(lines[1:])
+                self._save_common_history()
                 if self.practical_mode and not implementation_request:
                     self.status.text = (
                         "Consensus reached. Implementation draft is unlocked."
@@ -2401,7 +2635,6 @@ def test_all_routes(
     passed = sum(1 for item in results if item["status"] == "PASS")
     report_lines.extend(["", f"Summary: {passed}/{len(results)} connections passed"])
     return {"results": results, "report": "\n".join(report_lines)}
-
 END ALLOWED
 
 
@@ -2775,7 +3008,6 @@ class LLMSettingsPopup(Popup):
             Clock.schedule_once(finish, 0)
 
         Thread(target=worker, name="yj64-router-test-all", daemon=True).start()
-
 END ALLOWED
 
 
@@ -2917,7 +3149,6 @@ class MessageDistributor:
                 response_length=len(result.get("response", "")),
             )
         return result
-
 END ALLOWED
 
 🟡 ИЗМЕНЕНИЕ: GUARD VERIFIER — блокировка Build при несовпадении.
@@ -3068,7 +3299,7 @@ name: YJ-64 Guard Validation
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'work/chat-ui-remote-participant']
     paths:
       - 'PROTECTED-LINE-GUARD'
       - 'main.py'
@@ -3107,7 +3338,7 @@ jobs:
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
         run: |
-          python3 -m py_compile main.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+          python3 -m py_compile main.py chat_workspace.py remote_participant.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
 END ALLOWED
 
 🟡 ИЗМЕНЕНИЕ: .github/workflows/android-apk.yml — защищённый технический файл.
@@ -3116,7 +3347,7 @@ name: YJ-64 Base Android APK
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'work/chat-ui-remote-participant']
     paths:
       - 'PROTECTED-LINE-GUARD'
   workflow_dispatch:
@@ -3163,7 +3394,7 @@ jobs:
 
       - name: Validate sources
         run: |
-          python -m py_compile main.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+          python -m py_compile main.py chat_workspace.py remote_participant.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
 
       - name: Clean previous Android build artifacts and logs
         run: |
@@ -3227,7 +3458,7 @@ android.ndk_api = 24
 android.ndk = 25b
 android.accept_sdk_license = True
 android.archs = arm64-v8a
-android.permissions = INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_SPECIAL_USE,RECORD_AUDIO
+android.permissions = INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_SPECIAL_USE,RECORD_AUDIO,READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,READ_MEDIA_VIDEO,READ_MEDIA_AUDIO
 services = internal:services/internal_monitor.py:foreground:sticky:foregroundServiceType=specialUse
 android.debug_artifact = apk
 android.add_src = android_src
@@ -3240,13 +3471,189 @@ log_level = 2
 warn_on_root = 1
 bin_dir = ./bin
 END ALLOWED
+FILE: chat_workspace.py BEGIN ALLOWED
+"""Persistent local workspace for YJ-64 chats, threads, and skills."""
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+
+class ChatWorkspace:
+    """Stores chat metadata and message histories in app-private storage."""
+
+    def __init__(self, data_dir: str | Path) -> None:
+        self.root = Path(data_dir) / "yj64-workspace"
+        self.chats_dir = self.root / "chats"
+        self.index_path = self.root / "chats-index.json"
+        self.skills_path = self.root / "skills.md"
+        self.chats_dir.mkdir(parents=True, exist_ok=True)
+        if not self.skills_path.exists():
+            self.skills_path.write_text(
+                "# YJ-64 Skills\n\n"
+                "Keep reusable skills as concise, reviewable Markdown instructions.\n"
+                "Do not store API keys, passwords, access tokens, or private credentials here.\n",
+                encoding="utf-8",
+            )
+        if not self.index_path.exists():
+            self._write_index([])
+        if not self.list_chats():
+            self.create_chat("Первый чат")
+
+    def _read_index(self) -> list[dict[str, Any]]:
+        try:
+            data = json.loads(self.index_path.read_text(encoding="utf-8"))
+            chats = data.get("chats", []) if isinstance(data, dict) else []
+            return [item for item in chats if isinstance(item, dict) and item.get("id")]
+        except (OSError, ValueError):
+            return []
+
+    def _write_index(self, chats: list[dict[str, Any]]) -> None:
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        self.index_path.write_text(
+            json.dumps({"schema": "yj64.workspace.v1", "chats": chats},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def list_chats(self) -> list[dict[str, Any]]:
+        return sorted(self._read_index(), key=lambda item: int(item.get("updated_ms", 0)),
+                      reverse=True)
+
+    def create_chat(self, title: str = "Новый чат", parent_id: str | None = None) -> str:
+        now = int(time.time() * 1000)
+        chat_id = uuid.uuid4().hex
+        chats = self._read_index()
+        chats.append({
+            "id": chat_id, "title": (title.strip() or "Новый чат")[:100],
+            "created_ms": now, "updated_ms": now, "parent_id": parent_id,
+        })
+        self._write_index(chats)
+        self._write_messages(chat_id, [])
+        return chat_id
+
+    def load_messages(self, chat_id: str) -> list[dict[str, str]]:
+        path = self.chats_dir / f"{chat_id}.json"
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            messages = raw.get("messages", []) if isinstance(raw, dict) else []
+            return [
+                {"role": str(item.get("role", "user")),
+                 "content": str(item.get("content", ""))}
+                for item in messages if isinstance(item, dict)
+            ]
+        except (OSError, ValueError):
+            return []
+
+    def save_messages(self, chat_id: str, messages: list[dict[str, str]]) -> None:
+        safe = [{"role": str(item.get("role", "user")),
+                 "content": str(item.get("content", ""))}
+                for item in messages]
+        self._write_messages(chat_id, safe)
+        chats = self._read_index()
+        now = int(time.time() * 1000)
+        for item in chats:
+            if item.get("id") == chat_id:
+                item["updated_ms"] = now
+                first = next((m.get("content", "") for m in safe if m.get("role") == "user"), "")
+                if first and item.get("title") in {"Новый чат", "Первый чат"}:
+                    item["title"] = first[:80].replace("\n", " ")
+                break
+        self._write_index(chats)
+
+    def _write_messages(self, chat_id: str, messages: list[dict[str, str]]) -> None:
+        path = self.chats_dir / f"{chat_id}.json"
+        path.write_text(
+            json.dumps({"schema": "yj64.chat.v1", "chat_id": chat_id,
+                        "messages": messages}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_named_history(self, name: str) -> list[dict[str, str]]:
+        safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_ ").strip().replace(" ", "_")
+        path = self.root / f"private-{safe}.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data.get("messages", []) if isinstance(data, dict) else []
+        except (OSError, ValueError):
+            return []
+
+    def save_named_history(self, name: str, messages: list[dict[str, str]]) -> None:
+        safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_ ").strip().replace(" ", "_")
+        (self.root / f"private-{safe}.json").write_text(
+            json.dumps({"messages": messages}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def read_skills(self) -> str:
+        return self.skills_path.read_text(encoding="utf-8")
+
+    def write_skills(self, content: str) -> None:
+        self.skills_path.write_text(content, encoding="utf-8")
+END ALLOWED
+
+FILE: remote_participant.py BEGIN ALLOWED
+"""Explicit placeholder for the future remote participant installed on an administrator's computer.
+
+This module deliberately performs no network connection, command execution, or remote access.
+The actual protocol and installation steps will be designed with the administrator.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class RemoteParticipantStatus:
+    configured: bool = False
+    connected: bool = False
+    state: str = "placeholder"
+    message: str = (
+        "Remote participant is not installed or connected. "
+        "Administrator-side module and authenticated transport are pending design."
+    )
+
+
+def get_status() -> RemoteParticipantStatus:
+    """Return truthful local status without probing or contacting another computer."""
+    return RemoteParticipantStatus()
+
+
+def connect() -> RemoteParticipantStatus:
+    """Safe stub: no connection is attempted until the admin protocol is approved."""
+    return get_status()
+END ALLOWED
+
+FILE: skills.md BEGIN ALLOWED
+# YJ-64 Skills
+
+This file stores reusable, user-editable instructions for YJ-64. It remains in the
+application's private local storage at runtime.
+
+## Evidence discipline
+- Distinguish verified facts, hypotheses, and unknowns.
+- Do not claim that a build, upload, repository edit, or remote action succeeded without evidence.
+- Prefer reproducible steps, diagnostic events, tests, and rollback instructions.
+
+## Implementation discipline
+- Inspect the existing implementation before proposing edits.
+- Preserve protected Guard fragments and verify exact single matches.
+- Never put API keys, passwords, or access tokens in chat history or this file.
+END ALLOWED
+
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=0c73ca269cbd7f963eb021e20f2cab8212990245
+EXPECTED-GIT-BLOB-SHA:main.py=212ad630c814d8cd339459cbc4caec1e7e5e97fc
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
-EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=fb6adc5494db1189148f3223a35466f566ee0fe2
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=4fec03a5c2c65a8d823b273ffff9c89e70b721f3
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=59d711bdf5b81be4a9a5632a06c893ce862699cc
+EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=9c85825536cc684761a7cc82fab1e26f87017769
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=50fbd2367658c891558741d263031db21cf13d6f
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=7ee951d9eee87dc05aa949c442f2c22a82df1cb3
+EXPECTED-GIT-BLOB-SHA:chat_workspace.py=7612d2ecccba37146a3aeb4db620a00732aaffe4
+EXPECTED-GIT-BLOB-SHA:remote_participant.py=5ed2efe87e5f362b7097745d0c76e0adffb3836e
+EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
