@@ -109,45 +109,13 @@ class YJ64BaseApp(App):
         ))
         root.add_widget(self.status)
 
-        monitor_button = Button(
-            text="Open Internal Monitor",
+        tools_button = Button(
+            text="TOOLS / MONITOR / DIAGNOSTICS",
             size_hint_y=None,
-            height=72,
+            height=56,
         )
-        monitor_button.bind(on_release=self._open_monitor)
-        root.add_widget(monitor_button)
-
-        llm_button = Button(
-            text="Test LLM API + Copy Report",
-            size_hint_y=None,
-            height=72,
-        )
-        llm_button.bind(on_release=self._test_llm_api)
-        root.add_widget(llm_button)
-
-        import_keys_button = Button(
-            text="Import API Keys File",
-            size_hint_y=None,
-            height=72,
-        )
-        import_keys_button.bind(on_release=self._open_monitor)
-        root.add_widget(import_keys_button)
-
-        settings_button = Button(
-            text="Configure LLM API / Key",
-            size_hint_y=None,
-            height=72,
-        )
-        settings_button.bind(on_release=self._open_llm_settings)
-        root.add_widget(settings_button)
-
-        generation_button = Button(
-            text="Test LLM Generation + Copy",
-            size_hint_y=None,
-            height=72,
-        )
-        generation_button.bind(on_release=self._test_llm_generation)
-        root.add_widget(generation_button)
+        tools_button.bind(on_release=self._open_tools_menu)
+        root.add_widget(tools_button)
 
         root.add_widget(Label(
             text="LLM CHAT",
@@ -195,9 +163,12 @@ class YJ64BaseApp(App):
         new_chat_button.bind(on_release=self._new_chat)
         attach_button = Button(text="ATTACH FILE", size_hint_x=1)
         attach_button.bind(on_release=self._attach_file)
+        media_button = Button(text="CAMERA / LIVE MEDIA")
+        media_button.bind(on_release=self._open_live_media_placeholder)
         workspace_row.add_widget(chats_button)
         workspace_row.add_widget(new_chat_button)
         workspace_row.add_widget(attach_button)
+        workspace_row.add_widget(media_button)
         root.add_widget(workspace_row)
 
         modes_row = BoxLayout(
@@ -456,6 +427,68 @@ class YJ64BaseApp(App):
         attach.bind(on_release=attach_selected)
         close.bind(on_release=lambda *_: popup.dismiss())
         popup.open()
+
+    def _open_tools_menu(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        popup = Popup(title="TOOLS / MONITOR / DIAGNOSTICS", content=content, size_hint=(0.92, 0.84))
+        actions = [
+            ("OPEN INTERNAL MONITOR", self._open_monitor),
+            ("TEST LLM API + COPY REPORT", self._test_llm_api),
+            ("TEST LLM GENERATION + COPY", self._test_llm_generation),
+            ("CONFIGURE LLM API / KEY", self._open_llm_settings),
+            ("COPY DIAGNOSTIC REPORT", self._copy_diagnostic_report),
+            ("CHATGPT BRIDGE (STUB)", self._open_chatgpt_bridge),
+        ]
+        for label, callback in actions:
+            button = Button(text=label, size_hint_y=None, height=54)
+            def invoke(_button: Any, action: Any = callback) -> None:
+                popup.dismiss()
+                action()
+            button.bind(on_release=invoke)
+            content.add_widget(button)
+        close = Button(text="CLOSE", size_hint_y=None, height=48)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+        self._append_report("tools_menu_opened", actions=[item[0] for item in actions])
+
+    def _copy_diagnostic_report(self, *_: Any) -> None:
+        report = self._read_report_text()
+        self._copy_to_clipboard(report)
+        self.status.text = f"Diagnostic report copied from {self.report_path}"
+        self._append_report("diagnostic_report_copy_requested", path=str(self.report_path))
+
+    def _open_chatgpt_bridge(self, *_: Any) -> None:
+        from chatgpt_bridge import get_status
+        state = get_status()
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="CHATGPT BRIDGE — PLACEHOLDER ONLY\n\n" + state.message
+                 + "\n\nNo browser session is read, no credentials are captured, "
+                   "and no content is sent to ChatGPT from this screen."
+        ))
+        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        content.add_widget(close)
+        popup = Popup(title="CHATGPT BRIDGE", content=content, size_hint=(0.94, 0.62))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        self._append_report("chatgpt_bridge_placeholder_opened", connected=False)
+
+    def _open_live_media_placeholder(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="CAMERA / LIVE MEDIA\n\n"
+                 "This build can select files, but it does not yet capture or stream live "
+                 "camera video, and binary image/audio/video contents are not uploaded to "
+                 "the LLM. A real implementation needs Android capture permissions, a "
+                 "supported real-time transport, and explicit user controls."
+        ))
+        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        content.add_widget(close)
+        popup = Popup(title="CAMERA / LIVE MEDIA", content=content, size_hint=(0.94, 0.6))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        self._append_report("live_media_placeholder_opened", capture_started=False, streaming_started=False)
 
     def _open_remote_participant(self, *_: Any) -> None:
         from remote_participant import get_status
@@ -911,6 +944,12 @@ class YJ64BaseApp(App):
             height=110,
             write_tab=False,
         )
+        cycle_row = BoxLayout(spacing=8, size_hint_y=None, height=48)
+        cycle_row.add_widget(Label(text="Rounds per participant:", size_hint_x=0.65))
+        cycles_input = TextInput(
+            text="3", multiline=False, input_filter="int", size_hint_x=0.35,
+        )
+        cycle_row.add_widget(cycles_input)
         controls = BoxLayout(
             spacing=8,
             size_hint_y=None,
@@ -925,6 +964,7 @@ class YJ64BaseApp(App):
         close = Button(text="CLOSE", size_hint_y=None, height=54)
         content.add_widget(output)
         content.add_widget(prompt)
+        content.add_widget(cycle_row)
         content.add_widget(controls)
         content.add_widget(close)
 
@@ -951,7 +991,7 @@ class YJ64BaseApp(App):
             self._append_report("group_dialogue_stop_requested")
             append_chat("[STOP REQUESTED] Waiting for the current request to finish.")
 
-        def run_dialogue(question: str) -> None:
+        def run_dialogue(question: str, max_cycles: int) -> None:
             messages: list[dict[str, str]] = [
                 {"speaker": "Owner", "text": question}
             ]
@@ -961,10 +1001,13 @@ class YJ64BaseApp(App):
                 "group_dialogue_started",
                 participants=participants,
                 question=question,
+                max_cycles=max_cycles,
+                max_turns=max_cycles * len(participants),
             )
 
             while (
-                not state["stop_requested"]
+                turn < max_cycles * len(participants)
+                and not state["stop_requested"]
                 and self.message_distributor.dialogue_enabled
             ):
                 participant = self.message_distributor.next_participant(participants)
@@ -1051,6 +1094,15 @@ class YJ64BaseApp(App):
             question = prompt.text.strip()
             if not question:
                 return
+            try:
+                max_cycles = int(cycles_input.text or "3")
+            except ValueError:
+                cycles_input.text = "3"
+                self.status.text = "Dialogue rounds must be a number from 1 to 20."
+                return
+            if not 1 <= max_cycles <= 20:
+                self.status.text = "Dialogue rounds must be between 1 and 20."
+                return
             self.message_distributor.set_dialogue_enabled(True)
             state["running"] = True
             state["stop_requested"] = False
@@ -1061,7 +1113,7 @@ class YJ64BaseApp(App):
             from threading import Thread
             Thread(
                 target=run_dialogue,
-                args=(question,),
+                args=(question, max_cycles),
                 name="yj64-group-dialogue",
                 daemon=True,
             ).start()
@@ -3338,7 +3390,7 @@ jobs:
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
         run: |
-          python3 -m py_compile main.py chat_workspace.py remote_participant.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+          python3 -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
 END ALLOWED
 
 🟡 ИЗМЕНЕНИЕ: .github/workflows/android-apk.yml — защищённый технический файл.
@@ -3394,7 +3446,7 @@ jobs:
 
       - name: Validate sources
         run: |
-          python -m py_compile main.py chat_workspace.py remote_participant.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+          python -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
 
       - name: Clean previous Android build artifacts and logs
         run: |
@@ -3644,16 +3696,65 @@ application's private local storage at runtime.
 - Never put API keys, passwords, or access tokens in chat history or this file.
 END ALLOWED
 
+FILE: chatgpt_bridge.py BEGIN ALLOWED
+"""Safe placeholder for a future bridge to a supported ChatGPT channel.
+
+This module does not automate the ChatGPT UI, read browser sessions, or transmit
+conversation data. A supported transport and explicit consent flow must be selected first.
+"""
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class BridgeStatus:
+    available: bool = False
+    connected: bool = False
+    state: str = "placeholder"
+    message: str = (
+        "ChatGPT bridge is not connected. No supported channel/API has been configured; "
+        "no chat content has been sent outside this app."
+    )
+
+
+def get_status() -> BridgeStatus:
+    return BridgeStatus()
+END ALLOWED
+
+FILE: chatgpt_bridge.py BEGIN ALLOWED
+"""Safe placeholder for a future bridge to a supported ChatGPT channel.
+
+This module does not automate the ChatGPT UI, read browser sessions, or transmit
+conversation data. A supported transport and explicit consent flow must be selected first.
+"""
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class BridgeStatus:
+    available: bool = False
+    connected: bool = False
+    state: str = "placeholder"
+    message: str = (
+        "ChatGPT bridge is not connected. No supported channel/API has been configured; "
+        "no chat content has been sent outside this app."
+    )
+
+
+def get_status() -> BridgeStatus:
+    return BridgeStatus()
+END ALLOWED
+
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=212ad630c814d8cd339459cbc4caec1e7e5e97fc
+EXPECTED-GIT-BLOB-SHA:main.py=bb6e1dcb9918166c4b77b907fb0b130ce078b4bb
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
-EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=9c85825536cc684761a7cc82fab1e26f87017769
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=50fbd2367658c891558741d263031db21cf13d6f
+EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=f793818fc15183c454d1fc721f3961143c2e7711
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=1653ad84e96406950b2061ef1e6494d1d5e408c8
 EXPECTED-GIT-BLOB-SHA:buildozer.spec=7ee951d9eee87dc05aa949c442f2c22a82df1cb3
 EXPECTED-GIT-BLOB-SHA:chat_workspace.py=7612d2ecccba37146a3aeb4db620a00732aaffe4
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=5ed2efe87e5f362b7097745d0c76e0adffb3836e
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
+EXPECTED-GIT-BLOB-SHA:chatgpt_bridge.py=ffb962f4e37dd37f472a6ec85c8932a1de0051ea
