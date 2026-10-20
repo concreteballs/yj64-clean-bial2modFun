@@ -29,14 +29,14 @@ VERSION CONTROL — ЗАЩИЩЁННЫЙ БЛОК НОМЕРА ВЕРСИИ APK
 Модуль 1 — OLD_VERSION:
 0.1.0
 Модуль 2 — NEW_VERSION:
-0.1.4
+0.1.5
 Обязательные условия допуска к сборке:
 1. NEW_VERSION строго больше OLD_VERSION по семантическому сравнению major.minor.patch.
 2. NEW_VERSION точно совпадает со значением version в buildozer.spec.
 3. Если OLD_VERSION == NEW_VERSION, сборка запрещена.
 4. Если версия отсутствует, имеет неверный формат, не увеличена или не совпадает с buildozer.spec, сборка запрещена.
 5. После подтверждённой успешной сборки скопировать NEW_VERSION в OLD_VERSION; затем увеличить NEW_VERSION для следующей сборки и согласовать её с buildozer.spec только при подготовке следующего APK.
-6. Текущий блок сохраняет последнюю подтверждённую успешную версию 0.1.0 и задаёт следующую версию 0.1.4; buildozer.spec обновлён до 0.1.4. Версия 0.1.2 была зарезервирована для отменённой попытки сборки и не переиспользуется. Проверка версии выполняется tools/verify_guard.py и workflow-файлами перед сборкой.
+6. Текущий блок сохраняет последнюю подтверждённую успешную версию 0.1.0 и задаёт следующую версию 0.1.5; buildozer.spec обновлён до 0.1.5. Версия 0.1.2 была зарезервирована для отменённой попытки сборки и не переиспользуется. Проверка версии выполняется tools/verify_guard.py и workflow-файлами перед сборкой.
 ============================================================
 
 ============================================================ НАЧАЛО ОПЕРАЦИОННОГО СТОЛА
@@ -193,7 +193,7 @@ class YJ64BaseApp(App):
             chat_count=len(self.workspace.list_chats()),
             skills_path=str(self.workspace.skills_path),
         )
-        return scroll
+        return root
 
     def _load_language(self) -> str | None:
         path = Path(self.user_data_dir) / "yj64-language.json"
@@ -3512,7 +3512,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.4
+version = 0.1.5
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi
 orientation = portrait
 fullscreen = 0
@@ -3736,7 +3736,7 @@ END ALLOWED
 
 
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=8e25aa5f37478b06a7f1b3b7c9b512c1970b1890
+EXPECTED-GIT-BLOB-SHA:main.py=892179a3b4b3fca4653154c608fb347293a18172
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
@@ -3744,7 +3744,7 @@ EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=f793818fc15183c454d1fc721f3961143c2e7711
 EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=1653ad84e96406950b2061ef1e6494d1d5e408c8
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=ce8a07394a6c7962069c2664152e82d3bf7cebf8
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=d246b2b44820437d084bd03232dc970d6fbcca03
 EXPECTED-GIT-BLOB-SHA:chat_workspace.py=7612d2ecccba37146a3aeb4db620a00732aaffe4
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=5ed2efe87e5f362b7097745d0c76e0adffb3836e
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
