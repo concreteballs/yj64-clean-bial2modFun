@@ -18,6 +18,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.filechooser import FileChooserListView
 
 Window.softinput_mode = "below_target"
@@ -34,6 +35,7 @@ class YJ64BaseApp(App):
     def build(self):
         from message_distributor import MessageDistributor
         from chat_workspace import ChatWorkspace
+
         self.message_distributor = MessageDistributor()
         self.workspace = ChatWorkspace(self.user_data_dir)
         chats = self.workspace.list_chats()
@@ -46,51 +48,90 @@ class YJ64BaseApp(App):
         self.consensus_summary = ""
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
+
         self.status = Label(
             text="Starting embedded diagnostic agent...",
             halign="left",
-            valign="top",
+            valign="middle",
             size_hint_y=None,
-            height=90,
+            height=40,
         )
         self.status.bind(
             size=lambda instance, value: setattr(instance, "text_size", value)
         )
 
-        root = BoxLayout(orientation="vertical", padding=24, spacing=16)
+        # Keep the chat as the visual priority; the action tiles remain below it.
+        root = BoxLayout(orientation="vertical", padding=8, spacing=6)
         root.add_widget(Label(
             text="YJ-64 Base Application",
             size_hint_y=None,
-            height=80,
+            height=42,
         ))
         root.add_widget(self.status)
 
-        tools_button = Button(
-            text="TOOLS / MONITOR / DIAGNOSTICS",
+        chat_row = BoxLayout(
+            orientation="horizontal",
+            spacing=6,
             size_hint_y=None,
-            height=56,
+            height=max(260, min(Window.height * 0.42, 420)),
         )
-        tools_button.bind(on_release=self._open_tools_menu)
-        root.add_widget(tools_button)
-
-        root.add_widget(Label(
+        chat_column = BoxLayout(
+            orientation="vertical",
+            spacing=4,
+        )
+        chat_column.add_widget(Label(
             text="LLM CHAT",
             size_hint_y=None,
-            height=42,
+            height=28,
         ))
         self.chat_output = TextInput(
             text=self._render_history(),
             readonly=True,
             multiline=True,
-            size_hint_y=None,
-            height=180,
+            size_hint_y=1,
+            padding=(8, 8),
         )
-        root.add_widget(self.chat_output)
+        chat_column.add_widget(self.chat_output)
+        chat_row.add_widget(chat_column)
 
-        chat_row = BoxLayout(
-            spacing=12,
+        participant_column = BoxLayout(
+            orientation="vertical",
+            spacing=5,
+            size_hint_x=None,
+            width=96,
+        )
+        participant_column.add_widget(Label(
+            text="PARTICIPANTS",
             size_hint_y=None,
-            height=64,
+            height=28,
+            font_size="10sp",
+        ))
+        self.participant_buttons = {}
+        for participant_name, short_name in (
+            ("Participant 1", "Participant\n1"),
+            ("Participant 2", "Participant\n2"),
+            ("Participant 3", "Participant\n3"),
+        ):
+            button = Button(
+                text=short_name,
+                size_hint_y=None,
+                height=48,
+                font_size="12sp",
+            )
+            button.bind(
+                on_release=lambda _button, name=participant_name:
+                self._open_participant_menu(name)
+            )
+            self.participant_buttons[participant_name] = button
+            participant_column.add_widget(button)
+        chat_row.add_widget(participant_column)
+        root.add_widget(chat_row)
+
+        chat_row_input = BoxLayout(
+            orientation="horizontal",
+            spacing=8,
+            size_hint_y=None,
+            height=62,
         )
         self.chat_input = TextInput(
             hint_text="Write a message...",
@@ -100,114 +141,74 @@ class YJ64BaseApp(App):
             keyboard_suggestions=True,
         )
         self.chat_input.bind(focus=self._chat_input_focus_changed)
-        chat_row.add_widget(self.chat_input)
+        chat_row_input.add_widget(self.chat_input)
         chat_send = Button(
             text="SEND",
             size_hint_x=None,
-            width=120,
+            width=76,
         )
         chat_send.bind(on_release=self._send_llm_chat)
-        chat_row.add_widget(chat_send)
-        root.add_widget(chat_row)
+        chat_row_input.add_widget(chat_send)
+        root.add_widget(chat_row_input)
 
-        workspace_row = BoxLayout(
-            spacing=8, size_hint_y=None, height=54,
-        )
-        chats_button = Button(text="CHATS", size_hint_x=1)
-        chats_button.bind(on_release=self._show_chats)
-        new_chat_button = Button(text="NEW CHAT", size_hint_x=1)
-        new_chat_button.bind(on_release=self._new_chat)
-        attach_button = Button(text="ATTACH FILE", size_hint_x=1)
-        attach_button.bind(on_release=self._attach_file)
-        media_button = Button(text="CAMERA / LIVE MEDIA")
-        media_button.bind(on_release=self._open_live_media_placeholder)
-        workspace_row.add_widget(chats_button)
-        workspace_row.add_widget(new_chat_button)
-        workspace_row.add_widget(attach_button)
-        workspace_row.add_widget(media_button)
-        root.add_widget(workspace_row)
-
-        modes_row = BoxLayout(
-            spacing=8, size_hint_y=None, height=54,
-        )
-        self.critique_mode_button = Button(
-            text="CRITIQUE PROJECT: OFF",
-            background_color=(0.15, 0.65, 0.25, 1),
-        )
-        self.critique_mode_button.bind(on_release=self._toggle_critique_mode)
-        skills_button = Button(text="SKILLS FILE")
-        skills_button.bind(on_release=self._open_skills_editor)
-        remote_button = Button(text="REMOTE PARTICIPANT (STUB)")
-        remote_button.bind(on_release=self._open_remote_participant)
-        modes_row.add_widget(self.critique_mode_button)
-        modes_row.add_widget(skills_button)
-        modes_row.add_widget(remote_button)
-        root.add_widget(modes_row)
-
-        practical_row = BoxLayout(
-            spacing=12,
+        # Three-column tile grid: callbacks and feature behavior stay unchanged.
+        action_grid = GridLayout(
+            cols=3,
+            spacing=6,
             size_hint_y=None,
-            height=58,
+            row_default_height=66,
+            row_force_default=True,
         )
-        self.practical_mode_button = Button(
-            text="ПЕРЕЙТИ К ПРАКТИЧЕСКИМ ДЕЙСТВИЯМ: OFF",
-            size_hint_x=1,
-        )
-        self.practical_mode_button.bind(on_release=self._toggle_practical_mode)
-        practical_row.add_widget(self.practical_mode_button)
-        self.implementation_button = Button(
-            text="НАЧАТЬ РЕАЛИЗАЦИЮ ЧЕРЕЗ ПОДКЛЮЧЁННЫХ АГЕНТОВ",
-            size_hint_x=1,
-            disabled=True,
-        )
-        self.implementation_button.bind(on_release=self._start_agent_implementation)
-        practical_row.add_widget(self.implementation_button)
-        root.add_widget(practical_row)
+        action_grid.bind(minimum_height=action_grid.setter("height"))
 
-        participant_column = BoxLayout(
-            orientation="vertical",
-            spacing=8,
-            size_hint_y=None,
-            height=340,
-        )
-        participant_column.add_widget(Label(
-            text="PARTICIPANTS",
-            size_hint_y=None,
-            height=36,
-        ))
-        self.participant_buttons = {}
-        for participant_name in ("Participant 1", "Participant 2", "Participant 3"):
+        actions = [
+            ("TOOLS / MONITOR / DIAGNOSTICS", self._open_tools_menu),
+            ("CHATS", self._show_chats),
+            ("NEW CHAT", self._new_chat),
+            ("ATTACH FILE", self._attach_file),
+            ("CAMERA / LIVE MEDIA", self._open_live_media_placeholder),
+            ("CRITIQUE PROJECT: OFF", self._toggle_critique_mode),
+            ("SKILLS FILE", self._open_skills_editor),
+            ("REMOTE PARTICIPANT (STUB)", self._open_remote_participant),
+            ("PRACTICAL MODE: OFF", self._toggle_practical_mode),
+            ("START IMPLEMENTATION VIA AGENTS", self._start_agent_implementation),
+        ]
+        for label, callback in actions:
             button = Button(
-                text=participant_name,
+                text=label,
                 size_hint_y=None,
-                height=54,
+                height=66,
+                font_size="11sp",
+                halign="center",
+                valign="middle",
             )
             button.bind(
-                on_release=lambda _button, name=participant_name:
-                self._open_participant_menu(name)
+                size=lambda instance, value: setattr(
+                    instance, "text_size", (max(1, value[0] - 12), max(1, value[1] - 8))
+                )
             )
-            self.participant_buttons[participant_name] = button
-            participant_column.add_widget(button)
-        dialogue_button = Button(
-            text="START GROUP DIALOGUE",
-            size_hint_y=None,
-            height=58,
-        )
-        dialogue_button.bind(on_release=self._open_group_dialogue)
-        participant_column.add_widget(dialogue_button)
-        self.mode_button = Button(
-            text="REQUEST MODE: TEXT",
-            size_hint_y=None,
-            height=54,
-        )
-        self.mode_button.bind(on_release=self._toggle_request_mode)
-        participant_column.add_widget(self.mode_button)
-        root.add_widget(participant_column)
+            button.bind(on_release=callback)
+            action_grid.add_widget(button)
+            if label == "CRITIQUE PROJECT: OFF":
+                self.critique_mode_button = button
+                self.critique_mode_button.background_color = (0.15, 0.65, 0.25, 1)
+            elif label == "PRACTICAL MODE: OFF":
+                self.practical_mode_button = button
+            elif label == "START IMPLEMENTATION VIA AGENTS":
+                self.implementation_button = button
+                self.implementation_button.disabled = True
+
+        root.add_widget(action_grid)
         self._refresh_participant_buttons()
 
         root.size_hint_y = None
         root.bind(minimum_height=root.setter("height"))
-        scroll = ScrollView(do_scroll_x=False, bar_width=8)
+        scroll = ScrollView(
+            do_scroll_x=False,
+            do_scroll_y=True,
+            bar_width=10,
+            scroll_type=["bars", "content"],
+        )
         scroll.add_widget(root)
 
         self._write_main_pid()
