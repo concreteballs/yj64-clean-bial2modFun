@@ -17,6 +17,8 @@ from kivy.core.window import Window
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.filechooser import FileChooserListView
 
 Window.softinput_mode = "below_target"
 
@@ -31,10 +33,15 @@ TEST_RESULT_RELATIVE_PATH = Path("yj64-test-result.json")
 class YJ64BaseApp(App):
     def build(self):
         from message_distributor import MessageDistributor
+        from chat_workspace import ChatWorkspace
         self.message_distributor = MessageDistributor()
-        self.common_history: list[dict[str, str]] = []
+        self.workspace = ChatWorkspace(self.user_data_dir)
+        chats = self.workspace.list_chats()
+        self.current_chat_id = str(chats[0]["id"])
+        self.common_history: list[dict[str, str]] = self.workspace.load_messages(self.current_chat_id)
         self.private_histories: dict[str, list[dict[str, str]]] = {}
         self.practical_mode = False
+        self.critique_mode = False
         self.consensus_reached = False
         self.consensus_summary = ""
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
@@ -133,6 +140,37 @@ class YJ64BaseApp(App):
         chat_row.add_widget(chat_send)
         root.add_widget(chat_row)
 
+        workspace_row = BoxLayout(
+            spacing=8, size_hint_y=None, height=54,
+        )
+        chats_button = Button(text="CHATS", size_hint_x=1)
+        chats_button.bind(on_release=self._show_chats)
+        new_chat_button = Button(text="NEW CHAT", size_hint_x=1)
+        new_chat_button.bind(on_release=self._new_chat)
+        attach_button = Button(text="ATTACH FILE", size_hint_x=1)
+        attach_button.bind(on_release=self._attach_file)
+        workspace_row.add_widget(chats_button)
+        workspace_row.add_widget(new_chat_button)
+        workspace_row.add_widget(attach_button)
+        root.add_widget(workspace_row)
+
+        modes_row = BoxLayout(
+            spacing=8, size_hint_y=None, height=54,
+        )
+        self.critique_mode_button = Button(
+            text="CRITIQUE PROJECT: OFF",
+            background_color=(0.15, 0.65, 0.25, 1),
+        )
+        self.critique_mode_button.bind(on_release=self._toggle_critique_mode)
+        skills_button = Button(text="SKILLS FILE")
+        skills_button.bind(on_release=self._open_skills_editor)
+        remote_button = Button(text="REMOTE PARTICIPANT (STUB)")
+        remote_button.bind(on_release=self._open_remote_participant)
+        modes_row.add_widget(self.critique_mode_button)
+        modes_row.add_widget(skills_button)
+        modes_row.add_widget(remote_button)
+        root.add_widget(modes_row)
+
         practical_row = BoxLayout(
             spacing=12,
             size_hint_y=None,
@@ -194,6 +232,11 @@ class YJ64BaseApp(App):
         root.add_widget(participant_column)
         self._refresh_participant_buttons()
 
+        root.size_hint_y = None
+        root.bind(minimum_height=root.setter("height"))
+        scroll = ScrollView(do_scroll_x=False, bar_width=8)
+        scroll.add_widget(root)
+
         self._write_main_pid()
         self._append_report(
             "base_ui_ready",
@@ -205,7 +248,185 @@ class YJ64BaseApp(App):
         Clock.schedule_interval(self._refresh_status, 1.0)
         Clock.schedule_interval(self._refresh_participant_buttons, 1.0)
         Clock.schedule_interval(self._poll_test_command, 0.5)
-        return root
+        self._append_report(
+            "workspace_opened",
+            chat_id=self.current_chat_id,
+            chat_count=len(self.workspace.list_chats()),
+            skills_path=str(self.workspace.skills_path),
+        )
+        return scroll
+
+    def _render_history(self) -> str:
+        rendered = []
+        for item in self.common_history:
+            role = "Owner" if item.get("role") == "user" else "YJ-64"
+            rendered.append(f"{role}:\n{item.get('content', '')}")
+        return "\n\n".join(rendered) or "New chat. Write a message below."
+
+    def _save_common_history(self) -> None:
+        self.workspace.save_messages(self.current_chat_id, self.common_history)
+
+    def _select_chat(self, chat_id: str, popup: Popup) -> None:
+        popup.dismiss()
+        self.current_chat_id = chat_id
+        self.common_history = self.workspace.load_messages(chat_id)
+        self.chat_output.text = self._render_history()
+        self.consensus_reached = False
+        self.implementation_button.disabled = True
+        self._append_report("workspace_chat_selected", chat_id=chat_id)
+        self.status.text = f"Opened chat {chat_id[:8]} with {len(self.common_history)} saved messages."
+
+    def _show_chats(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        listing = ScrollView(do_scroll_x=False)
+        items = BoxLayout(orientation="vertical", spacing=6, size_hint_y=None)
+        items.bind(minimum_height=items.setter("height"))
+        popup = Popup(title="SAVED CHATS", content=content, size_hint=(0.94, 0.86))
+        for item in self.workspace.list_chats():
+            title = str(item.get("title") or "Untitled chat")
+            button = Button(
+                text=f"{title}\n{str(item['id'])[:8]}",
+                size_hint_y=None, height=62,
+            )
+            button.bind(
+                on_release=lambda _btn, chat_id=str(item["id"]):
+                self._select_chat(chat_id, popup)
+            )
+            items.add_widget(button)
+        listing.add_widget(items)
+        content.add_widget(listing)
+        branch_button = Button(
+            text="CREATE BRANCH FROM CURRENT CHAT",
+            size_hint_y=None, height=52,
+        )
+        def create_branch(*_args: Any) -> None:
+            parent = self.current_chat_id
+            new_id = self.workspace.create_chat("Ветка обсуждения", parent_id=parent)
+            self.workspace.save_messages(new_id, list(self.common_history))
+            self._select_chat(new_id, popup)
+            self._append_report("workspace_branch_created", chat_id=new_id, parent_id=parent)
+        branch_button.bind(on_release=create_branch)
+        content.add_widget(branch_button)
+        close = Button(text="CLOSE", size_hint_y=None, height=48)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+
+    def _new_chat(self, *_: Any) -> None:
+        self._save_common_history()
+        self.current_chat_id = self.workspace.create_chat("Новый чат")
+        self.common_history = []
+        self.chat_output.text = self._render_history()
+        self.consensus_reached = False
+        self.implementation_button.disabled = True
+        self._append_report("workspace_chat_created", chat_id=self.current_chat_id)
+        self.status.text = "New local chat created."
+
+    def _toggle_critique_mode(self, *_: Any) -> None:
+        self.critique_mode = not self.critique_mode
+        self.critique_mode_button.text = (
+            "CRITIQUE PROJECT: ON" if self.critique_mode else "CRITIQUE PROJECT: OFF"
+        )
+        self.critique_mode_button.background_color = (
+            (0.85, 0.15, 0.15, 1) if self.critique_mode else (0.15, 0.65, 0.25, 1)
+        )
+        self._append_report("critique_mode_changed", enabled=self.critique_mode)
+        self.status.text = (
+            "Critique mode ON: models must identify flaws, risks, and counter-evidence."
+            if self.critique_mode else "Critique mode OFF: normal instructions restored."
+        )
+
+    def _open_skills_editor(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        editor = TextInput(text=self.workspace.read_skills(), multiline=True)
+        content.add_widget(editor)
+        status = Label(text=f"Stored locally: {self.workspace.skills_path}", size_hint_y=None, height=44)
+        content.add_widget(status)
+        buttons = BoxLayout(size_hint_y=None, height=52, spacing=8)
+        save = Button(text="SAVE SKILLS")
+        close = Button(text="CLOSE")
+        buttons.add_widget(save)
+        buttons.add_widget(close)
+        content.add_widget(buttons)
+        popup = Popup(title="LOCAL SKILLS FILE", content=content, size_hint=(0.96, 0.9))
+        def save_skills(*_args: Any) -> None:
+            self.workspace.write_skills(editor.text)
+            self._append_report("skills_file_saved", character_count=len(editor.text))
+            status.text = "Saved locally. Instructions are added to future chat prompts."
+        save.bind(on_release=save_skills)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _attach_file(self, *_: Any) -> None:
+        preferred = Path("/storage/emulated/0/Download")
+        start_path = preferred if preferred.is_dir() else Path(self.user_data_dir)
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        chooser = FileChooserListView(path=str(start_path), filters=["!*/*", "*"])
+        content.add_widget(chooser)
+        note = Label(
+            text="Text files are embedded in the prompt (max 64 KB). Other files are recorded by name only; binary/multimedia transfer is not yet implemented.",
+            size_hint_y=None, height=58,
+        )
+        content.add_widget(note)
+        buttons = BoxLayout(size_hint_y=None, height=52, spacing=8)
+        attach = Button(text="ATTACH SELECTED")
+        close = Button(text="CLOSE")
+        buttons.add_widget(attach)
+        buttons.add_widget(close)
+        content.add_widget(buttons)
+        popup = Popup(title="ATTACH A FILE", content=content, size_hint=(0.97, 0.92))
+        def attach_selected(*_args: Any) -> None:
+            if not chooser.selection:
+                note.text = "Select a file first."
+                return
+            path = Path(chooser.selection[0])
+            if not path.is_file():
+                note.text = "Select a file, not a folder."
+                return
+            suffix = path.suffix.lower()
+            text_suffixes = {".txt", ".md", ".json", ".csv", ".py", ".yaml", ".yml", ".xml", ".log"}
+            try:
+                if suffix in text_suffixes:
+                    with path.open("rb") as handle:
+                        raw = handle.read(65537)
+                    if len(raw) > 65536:
+                        note.text = "Text file exceeds 64 KB; not attached. Use a smaller excerpt."
+                        return
+                    body = raw.decode("utf-8", errors="replace")
+                    self.chat_input.text += f"\n\n[ATTACHED TEXT FILE: {path.name}]\n{body}\n[END ATTACHMENT]\n"
+                    self._append_report("chat_text_file_attached", name=path.name, bytes=len(raw))
+                    note.text = f"Text contents added to message: {path.name}"
+                else:
+                    self.chat_input.text += f"\n\n[ATTACHMENT METADATA: {path.name}; type={suffix or 'unknown'}; content not transmitted]\n"
+                    self._append_report(
+                        "chat_binary_attachment_selected",
+                        name=path.name, suffix=suffix, transmitted=False,
+                    )
+                    note.text = "File name added only. This file's binary contents have NOT been sent to an LLM."
+                attach.disabled = True
+            except OSError as exc:
+                note.text = f"Could not read file: {type(exc).__name__}: {exc}"
+                self._append_report("chat_attachment_failed", path=str(path), error=str(exc))
+        attach.bind(on_release=attach_selected)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _open_remote_participant(self, *_: Any) -> None:
+        from remote_participant import get_status
+        state = get_status()
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="REMOTE PARTICIPANT — PLACEHOLDER ONLY\n\n"
+                 + state.message
+                 + "\n\nNo network connection or remote command is attempted. "
+                   "We will design the administrator's computer module in the next step.",
+        ))
+        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        content.add_widget(close)
+        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.94, 0.58))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        self._append_report("remote_participant_placeholder_opened", connected=False)
 
     def _toggle_practical_mode(self, *_: Any) -> None:
         self.practical_mode = not self.practical_mode
@@ -266,35 +487,39 @@ class YJ64BaseApp(App):
         self._send_llm_chat()
 
     def _practical_instructions(self, prompt: str, implementation: bool = False) -> str:
-        if not self.practical_mode:
+        sections: list[str] = []
+        if self.critique_mode:
+            sections.append(
+                "YJ-64 CRITIQUE PROJECT MODE: critically inspect assumptions, identify "
+                "failure modes and counter-evidence, separate facts from speculation, "
+                "and suggest tests that could disprove the proposal. Be constructive."
+            )
+        if self.practical_mode:
+            if implementation:
+                sections.append(
+                    "YJ-64 PRACTICAL ACTION PROTOCOL. Phase: IMPLEMENTATION DRAFT. "
+                    "Provide exact files, complete patches, integration points, tests, "
+                    "rollback steps, and unknowns. Do not claim repository edits or execution "
+                    "without evidence. No verified repository-writing agent is installed. "
+                    "End with [IMPLEMENTATION DRAFT]."
+                )
+            else:
+                sections.append(
+                    "YJ-64 PRACTICAL ACTION PROTOCOL. Give ordered actionable steps, files/tools, "
+                    "dependencies, risks, and testable completion criteria. Separate verified "
+                    "facts from assumptions. End with [CONSENSUS: APPROVE] only when you agree "
+                    "with no unresolved blocker, otherwise [CONSENSUS: OBJECT]. Do not imitate "
+                    "another participant's vote without independent assessment."
+                )
+        try:
+            skills = self.workspace.read_skills().strip()
+        except (OSError, AttributeError):
+            skills = ""
+        if skills:
+            sections.append("YJ-64 LOCAL SKILLS (user-editable instructions):\n" + skills[:12000])
+        if not sections:
             return prompt
-        if implementation:
-            rules = (
-                "YJ-64 PRACTICAL ACTION PROTOCOL. Phase: IMPLEMENTATION DRAFT. "
-                "Use the consensus-approved discussion and provide a concrete, reviewable "
-                "implementation proposal: identify exact files, show complete patches, "
-                "describe integration points, list tests and rollback steps, and identify "
-                "unknowns. Do not claim repository edits, external actions, or code execution "
-                "unless a connected action agent actually performed and verified them. "
-                "This installation currently provides LLM response routes, not a verified "
-                "repository-writing action agent. End with [IMPLEMENTATION DRAFT].\n\n"
-                "USER TASK:\n"
-            )
-        else:
-            rules = (
-                "YJ-64 PRACTICAL ACTION PROTOCOL. Phase: PRACTICAL ACTION DISCUSSION. "
-                "Move from abstract discussion to specific actionable proposals; state "
-                "the objective, ordered steps, required files/tools, dependencies, risks, "
-                "and a testable completion criterion; distinguish verified facts from "
-                "assumptions; do not claim actions were executed unless evidence proves it. "
-                "Consider prior messages and explicitly address other participants' proposals. "
-                "End with exactly one consensus marker: [CONSENSUS: APPROVE] only if you "
-                "support the shared plan and have no unresolved blocker, or "
-                "[CONSENSUS: OBJECT] if you disagree or need a blocker resolved. Do not "
-                "mark approval merely because other participants did so.\n\n"
-                "USER QUESTION / TASK:\n"
-            )
-        return rules + prompt
+        return "\n\n".join(sections) + "\n\nUSER TASK:\n" + prompt
 
     def _toggle_request_mode(self, *_: Any) -> None:
         mode = self.message_distributor.toggle_mode()
@@ -422,7 +647,9 @@ class YJ64BaseApp(App):
             model=status["model"],
         )
 
-        history = self.private_histories.setdefault(participant_name, [])
+        history = self.private_histories.setdefault(
+            participant_name, self.workspace.load_named_history(participant_name)
+        )
         output_lines = [
             f"{'You' if item.get('role') == 'user' else participant_name}:\n{item.get('content', '')}"
             for item in history
@@ -571,6 +798,9 @@ class YJ64BaseApp(App):
                             {"role": "assistant", "content": text_value},
                         ]
                         self.private_histories.setdefault(participant_name, []).extend(exchange)
+                        self.workspace.save_named_history(
+                            participant_name, self.private_histories[participant_name]
+                        )
                         last_exchange["messages"] = exchange
                         last_exchange["published"] = False
                         history_text = "\n\n".join(
@@ -1366,6 +1596,7 @@ class YJ64BaseApp(App):
                             broadcast=True,
                         )
                 self.common_history.extend(history_additions)
+                self._save_common_history()
                 if self.practical_mode and not implementation_request:
                     votes = {
                         name: (
@@ -1423,6 +1654,7 @@ class YJ64BaseApp(App):
                     failed=len(targets) - successful,
                 )
                 self.chat_output.text += "\n\n" + "\n\n".join(lines[1:])
+                self._save_common_history()
                 if self.practical_mode and not implementation_request:
                     self.status.text = (
                         "Consensus reached. Implementation draft is unlocked."
