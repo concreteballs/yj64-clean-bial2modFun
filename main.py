@@ -592,12 +592,12 @@ class YJ64BaseApp(App):
     def _refresh_participant_buttons(self, *_: Any) -> None:
         for participant_name, button in self.participant_buttons.items():
             status = self._participant_config_status(participant_name)
+            # Keep the side rail compact; connection state is conveyed by color.
+            button.text = participant_name.replace("Participant ", "P")
             if status["configured"]:
                 button.background_color = (0.2, 0.8, 0.2, 1)
-                button.text = f"{participant_name}  [CONNECTED]"
             else:
                 button.background_color = (1, 1, 1, 1)
-                button.text = participant_name
 
     def _open_participant_menu(self, participant_name: str) -> None:
         status = self._participant_config_status(participant_name)
