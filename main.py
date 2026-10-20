@@ -50,6 +50,8 @@ class YJ64BaseApp(App):
             text="Starting embedded diagnostic agent...",
             halign="left",
             valign="top",
+            size_hint_y=None,
+            height=90,
         )
         self.status.bind(
             size=lambda instance, value: setattr(instance, "text_size", value)
@@ -109,7 +111,7 @@ class YJ64BaseApp(App):
             height=42,
         ))
         self.chat_output = TextInput(
-            text="The successful generation test will appear here.",
+            text=self._render_history(),
             readonly=True,
             multiline=True,
             size_hint_y=None,
@@ -361,7 +363,7 @@ class YJ64BaseApp(App):
         preferred = Path("/storage/emulated/0/Download")
         start_path = preferred if preferred.is_dir() else Path(self.user_data_dir)
         content = BoxLayout(orientation="vertical", spacing=8, padding=10)
-        chooser = FileChooserListView(path=str(start_path), filters=["!*/*", "*"])
+        chooser = FileChooserListView(path=str(start_path), filters=["*"])
         content.add_widget(chooser)
         note = Label(
             text="Text files are embedded in the prompt (max 64 KB). Other files are recorded by name only; binary/multimedia transfer is not yet implemented.",
