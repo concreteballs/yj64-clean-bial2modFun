@@ -2750,7 +2750,7 @@ END ALLOWED
 🟡 ИЗМЕНЕНИЕ: GUARD VERIFIER — блокировка Build при несовпадении.
 FILE: tools/verify_guard.py BEGIN ALLOWED
 #!/usr/bin/env python3
-"""Verify protected fragments and whole-file Git blob identities before Android build."""
+"""Verify Guard fragments, version control, and whole-file Git blob identities."""
 
 from __future__ import annotations
 
@@ -2759,10 +2759,17 @@ import subprocess
 from pathlib import Path
 
 GUARD = Path("PROTECTED-LINE-GUARD")
+SPEC = Path("buildozer.spec")
 SECTION_RE = re.compile(
     r"^FILE: (?P<path>.+?) BEGIN ALLOWED\n(?P<content>.*?)\nEND ALLOWED$",
     re.MULTILINE | re.DOTALL,
 )
+VERSION_BLOCK_RE = re.compile(
+    r"^VERSION CONTROL — ЗАЩИЩЁННЫЙ БЛОК НОМЕРА ВЕРСИИ APK\n"
+    r"(?P<body>.*?)(?=^={10,})",
+    re.MULTILINE | re.DOTALL,
+)
+SEMVER_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 
 def git_blob_sha(path: str) -> str:
@@ -2773,6 +2780,71 @@ def git_blob_sha(path: str) -> str:
         text=True,
     )
     return result.stdout.strip()
+
+
+def parse_version(value: str, label: str) -> tuple[int, int, int]:
+    match = SEMVER_RE.fullmatch(value.strip())
+    if not match:
+        raise SystemExit(
+            f"VERSION CHECK FAILED: {label} must be major.minor.patch; got {value!r}"
+        )
+    return tuple(int(part) for part in match.groups())
+
+
+def read_single_version(body: str, label: str) -> str:
+    pattern = re.compile(
+        rf"^Модуль \d+ — {re.escape(label)}:\s*\n([^\r\n]+)$",
+        re.MULTILINE,
+    )
+    matches = pattern.findall(body)
+    if len(matches) != 1:
+        raise SystemExit(
+            f"VERSION CHECK FAILED: Guard must contain exactly one {label}; "
+            f"found {len(matches)}"
+        )
+    return matches[0].strip()
+
+
+def verify_version(guard: str) -> None:
+    blocks = list(VERSION_BLOCK_RE.finditer(guard))
+    if len(blocks) != 1:
+        raise SystemExit(
+            "VERSION CHECK FAILED: Guard must contain exactly one VERSION CONTROL block"
+        )
+
+    body = blocks[0].group("body")
+    old_text = read_single_version(body, "OLD_VERSION")
+    new_text = read_single_version(body, "NEW_VERSION")
+    old_version = parse_version(old_text, "OLD_VERSION")
+    new_version = parse_version(new_text, "NEW_VERSION")
+
+    if new_version <= old_version:
+        raise SystemExit(
+            f"VERSION CHECK FAILED: NEW_VERSION {new_text} must be greater than "
+            f"OLD_VERSION {old_text}"
+        )
+
+    if not SPEC.is_file():
+        raise SystemExit("VERSION CHECK FAILED: buildozer.spec is missing")
+    spec_text = SPEC.read_text(encoding="utf-8")
+    spec_versions = re.findall(r"^version\s*=\s*(\S+)\s*$", spec_text, re.MULTILINE)
+    if len(spec_versions) != 1:
+        raise SystemExit(
+            "VERSION CHECK FAILED: buildozer.spec must contain exactly one version = line"
+        )
+    spec_text_version = spec_versions[0].strip()
+    parse_version(spec_text_version, "buildozer.spec version")
+
+    if spec_text_version != new_text:
+        raise SystemExit(
+            f"VERSION CHECK FAILED: Guard NEW_VERSION {new_text} does not match "
+            f"buildozer.spec version {spec_text_version}"
+        )
+
+    print(
+        f"VERSION CHECK PASSED: OLD_VERSION={old_text}, "
+        f"NEW_VERSION={new_text}, buildozer.spec={spec_text_version}"
+    )
 
 
 def main() -> int:
@@ -2796,6 +2868,8 @@ def main() -> int:
                 f"is {actual.count(expected)}, expected 1"
             )
 
+    verify_version(guard)
+
     marker = "EXPECTED-GIT-BLOB-SHA:"
     for line in guard.splitlines():
         if not line.startswith(marker):
@@ -2814,14 +2888,192 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+END ALLOWED
+🟡 ИЗМЕНЕНИЕ: .github/workflows/ci.yml — защищённый технический файл.
+FILE: .github/workflows/ci.yml BEGIN ALLOWED
+name: YJ-64 Guard Validation
 
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'PROTECTED-LINE-GUARD'
+      - 'main.py'
+      - 'llm_api.py'
+      - 'llm_settings.py'
+      - 'message_distributor.py'
+      - 'buildozer.spec'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/android-apk.yml'
+      - 'tools/verify_guard.py'
+  pull_request:
+    branches: ['main']
+    paths:
+      - 'PROTECTED-LINE-GUARD'
+      - 'main.py'
+      - 'llm_api.py'
+      - 'llm_settings.py'
+      - 'message_distributor.py'
+      - 'buildozer.spec'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/android-apk.yml'
+      - 'tools/verify_guard.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Verify Guard before any Android build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify protected fragments, APK version, and file identities
+        run: |
+          python3 tools/verify_guard.py
+      - name: Compile protected Python modules
+        run: |
+          python3 -m py_compile main.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+END ALLOWED
+
+🟡 ИЗМЕНЕНИЕ: .github/workflows/android-apk.yml — защищённый технический файл.
+FILE: .github/workflows/android-apk.yml BEGIN ALLOWED
+name: YJ-64 Base Android APK
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'PROTECTED-LINE-GUARD'
+  workflow_dispatch:
+
+concurrency:
+  group: yj64-base-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build YJ-64 Base APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Guard fragments and APK version before build
+        run: |
+          python3 tools/verify_guard.py
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git zip unzip autoconf automake libtool libltdl-dev pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev build-essential gettext autopoint
+
+      - name: Install Buildozer and Cython
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install buildozer cython==0.29.36
+
+      - name: Validate sources
+        run: |
+          python -m py_compile main.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+
+      - name: Clean previous Android build artifacts and logs
+        run: |
+          rm -rf bin .buildozer
+          rm -f build.log buildozer.log
+          mkdir -p bin
+
+      - name: Build APK
+        run: |
+          export ACLOCAL_PATH="/usr/share/aclocal"
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Validate APK output
+        run: |
+          set -e
+          APK=$(find bin -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "ERROR: no APK was produced"
+            exit 1
+          fi
+          stat -c '%n %s bytes' "$APK"
+          sha256sum "$APK"
+
+      - name: Upload Build log
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: yj64-base-build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload APK
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: yj64-base-apk
+          path: bin/*.apk
+          if-no-files-found: warn
+          retention-days: 30
+END ALLOWED
+
+🟡 ИЗМЕНЕНИЕ: buildozer.spec — защищённый технический файл.
+FILE: buildozer.spec BEGIN ALLOWED
+[app]
+title = YJ-64 Base
+package.name = blackmirror
+package.domain = org.blackmirror
+source.dir = .
+source.include_exts = py,json,md,txt
+version = 0.1.1
+requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi
+orientation = portrait
+fullscreen = 0
+android.api = 34
+android.minapi = 24
+android.ndk_api = 24
+android.ndk = 25b
+android.accept_sdk_license = True
+android.archs = arm64-v8a
+android.permissions = INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_SPECIAL_USE,RECORD_AUDIO
+services = internal:services/internal_monitor.py:foreground:sticky:foregroundServiceType=specialUse
+android.debug_artifact = apk
+android.add_src = android_src
+android.add_activities = org.blackmirror.blackmirror.MonitorActivity
+p4a.hook = ./p4a/hook.py
+android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.blackmirror\" /></queries>"
+
+[buildozer]
+log_level = 2
+warn_on_root = 1
+bin_dir = ./bin
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
 EXPECTED-GIT-BLOB-SHA:main.py=dd21519b7af6347f6ef6e91286694d75f06e49eb
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
-EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=887269e44f5fbffc093de87d02e7bf960f3e138b
+EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
-EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=295307267609aea347e7b1ee7c668a5139d96f9c
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=69a6644b84324115fbac7a823beeda1fc629ecd1
+EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=fb6adc5494db1189148f3223a35466f566ee0fe2
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=4fec03a5c2c65a8d823b273ffff9c89e70b721f3
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=59d711bdf5b81be4a9a5632a06c893ce862699cc

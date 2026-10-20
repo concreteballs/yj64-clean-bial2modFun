@@ -9,7 +9,9 @@ on:
       - 'llm_api.py'
       - 'llm_settings.py'
       - 'message_distributor.py'
+      - 'buildozer.spec'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/android-apk.yml'
       - 'tools/verify_guard.py'
   pull_request:
     branches: ['main']
@@ -19,7 +21,9 @@ on:
       - 'llm_api.py'
       - 'llm_settings.py'
       - 'message_distributor.py'
+      - 'buildozer.spec'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/android-apk.yml'
       - 'tools/verify_guard.py'
   workflow_dispatch:
 
@@ -32,7 +36,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Verify protected fragments and file identities
+      - name: Verify protected fragments, APK version, and file identities
         run: |
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
