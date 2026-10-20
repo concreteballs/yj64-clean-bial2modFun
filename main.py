@@ -499,8 +499,9 @@ class YJ64BaseApp(App):
             output.text += f"\n\nYou: {message}\n\nSending privately..."
             common_context = list(self.common_history)
             private_context = list(self.private_histories.get(participant_name, []))
+            request_message = self._practical_instructions(message)
             request_history = common_context + private_context + [
-                {"role": "user", "content": message}
+                {"role": "user", "content": request_message}
             ]
             self._append_report(
                 "participant_request_started",
@@ -528,7 +529,7 @@ class YJ64BaseApp(App):
                     result = self.message_distributor.dispatch_message(
                         self.user_data_dir,
                         participant_name,
-                        message,
+                        request_message,
                         mode=mode,
                         history=request_history,
                         report=lambda event, **data: self._append_report(
@@ -699,6 +700,9 @@ class YJ64BaseApp(App):
                         "role": role,
                         "content": f"{item['speaker']}: {item['text']}",
                     })
+                request_text = self._practical_instructions(messages[-1]["text"])
+                if history:
+                    history[-1]["content"] = request_text
                 new_count = len(messages) - seen_by[participant]
                 self._append_report(
                     "group_dialogue_turn_started",
@@ -714,7 +718,7 @@ class YJ64BaseApp(App):
                     result = self.message_distributor.dispatch_message(
                         self.user_data_dir,
                         participant,
-                        messages[-1]["text"],
+                        request_text,
                         history=history,
                         report=lambda event, **data: self._append_report(
                             "group_dialogue_" + event,
@@ -1419,9 +1423,21 @@ class YJ64BaseApp(App):
                     failed=len(targets) - successful,
                 )
                 self.chat_output.text += "\n\n" + "\n\n".join(lines[1:])
-                self.status.text = (
-                    f"Common chat completed: {successful}/{len(targets)} participants answered."
-                )
+                if self.practical_mode and not implementation_request:
+                    self.status.text = (
+                        "Consensus reached. Implementation draft is unlocked."
+                        if self.consensus_reached
+                        else "Practical mode: consensus not reached; review votes and continue discussion."
+                    )
+                elif implementation_request:
+                    self.status.text = (
+                        f"Implementation drafts returned by {successful}/{len(targets)} connected LLMs. "
+                        "No repository files were changed by this action."
+                    )
+                else:
+                    self.status.text = (
+                        f"Common chat completed: {successful}/{len(targets)} participants answered."
+                    )
 
             Clock.schedule_once(finish, 0)
 
