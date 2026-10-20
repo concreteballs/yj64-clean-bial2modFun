@@ -149,7 +149,7 @@ class YJ64BaseApp(App):
             chat_count=len(self.workspace.list_chats()),
             skills_path=str(self.workspace.skills_path),
         )
-        return scroll
+        return root
 
     def _load_language(self) -> str | None:
         path = Path(self.user_data_dir) / "yj64-language.json"
