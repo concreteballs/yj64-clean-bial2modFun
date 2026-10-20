@@ -2,7 +2,7 @@ name: YJ-64 Guard Validation
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'work/chat-ui-remote-participant']
     paths:
       - 'PROTECTED-LINE-GUARD'
       - 'main.py'
@@ -41,4 +41,4 @@ jobs:
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
         run: |
-          python3 -m py_compile main.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+          python3 -m py_compile main.py chat_workspace.py remote_participant.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
