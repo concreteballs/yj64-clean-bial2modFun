@@ -65,45 +65,13 @@ class YJ64BaseApp(App):
         ))
         root.add_widget(self.status)
 
-        monitor_button = Button(
-            text="Open Internal Monitor",
+        tools_button = Button(
+            text="TOOLS / MONITOR / DIAGNOSTICS",
             size_hint_y=None,
-            height=72,
+            height=56,
         )
-        monitor_button.bind(on_release=self._open_monitor)
-        root.add_widget(monitor_button)
-
-        llm_button = Button(
-            text="Test LLM API + Copy Report",
-            size_hint_y=None,
-            height=72,
-        )
-        llm_button.bind(on_release=self._test_llm_api)
-        root.add_widget(llm_button)
-
-        import_keys_button = Button(
-            text="Import API Keys File",
-            size_hint_y=None,
-            height=72,
-        )
-        import_keys_button.bind(on_release=self._open_monitor)
-        root.add_widget(import_keys_button)
-
-        settings_button = Button(
-            text="Configure LLM API / Key",
-            size_hint_y=None,
-            height=72,
-        )
-        settings_button.bind(on_release=self._open_llm_settings)
-        root.add_widget(settings_button)
-
-        generation_button = Button(
-            text="Test LLM Generation + Copy",
-            size_hint_y=None,
-            height=72,
-        )
-        generation_button.bind(on_release=self._test_llm_generation)
-        root.add_widget(generation_button)
+        tools_button.bind(on_release=self._open_tools_menu)
+        root.add_widget(tools_button)
 
         root.add_widget(Label(
             text="LLM CHAT",
@@ -151,9 +119,12 @@ class YJ64BaseApp(App):
         new_chat_button.bind(on_release=self._new_chat)
         attach_button = Button(text="ATTACH FILE", size_hint_x=1)
         attach_button.bind(on_release=self._attach_file)
+        media_button = Button(text="CAMERA / LIVE MEDIA")
+        media_button.bind(on_release=self._open_live_media_placeholder)
         workspace_row.add_widget(chats_button)
         workspace_row.add_widget(new_chat_button)
         workspace_row.add_widget(attach_button)
+        workspace_row.add_widget(media_button)
         root.add_widget(workspace_row)
 
         modes_row = BoxLayout(
@@ -412,6 +383,68 @@ class YJ64BaseApp(App):
         attach.bind(on_release=attach_selected)
         close.bind(on_release=lambda *_: popup.dismiss())
         popup.open()
+
+    def _open_tools_menu(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        popup = Popup(title="TOOLS / MONITOR / DIAGNOSTICS", content=content, size_hint=(0.92, 0.84))
+        actions = [
+            ("OPEN INTERNAL MONITOR", self._open_monitor),
+            ("TEST LLM API + COPY REPORT", self._test_llm_api),
+            ("TEST LLM GENERATION + COPY", self._test_llm_generation),
+            ("CONFIGURE LLM API / KEY", self._open_llm_settings),
+            ("COPY DIAGNOSTIC REPORT", self._copy_diagnostic_report),
+            ("CHATGPT BRIDGE (STUB)", self._open_chatgpt_bridge),
+        ]
+        for label, callback in actions:
+            button = Button(text=label, size_hint_y=None, height=54)
+            def invoke(_button: Any, action: Any = callback) -> None:
+                popup.dismiss()
+                action()
+            button.bind(on_release=invoke)
+            content.add_widget(button)
+        close = Button(text="CLOSE", size_hint_y=None, height=48)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+        self._append_report("tools_menu_opened", actions=[item[0] for item in actions])
+
+    def _copy_diagnostic_report(self, *_: Any) -> None:
+        report = self._read_report_text()
+        self._copy_to_clipboard(report)
+        self.status.text = f"Diagnostic report copied from {self.report_path}"
+        self._append_report("diagnostic_report_copy_requested", path=str(self.report_path))
+
+    def _open_chatgpt_bridge(self, *_: Any) -> None:
+        from chatgpt_bridge import get_status
+        state = get_status()
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="CHATGPT BRIDGE — PLACEHOLDER ONLY\n\n" + state.message
+                 + "\n\nNo browser session is read, no credentials are captured, "
+                   "and no content is sent to ChatGPT from this screen."
+        ))
+        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        content.add_widget(close)
+        popup = Popup(title="CHATGPT BRIDGE", content=content, size_hint=(0.94, 0.62))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        self._append_report("chatgpt_bridge_placeholder_opened", connected=False)
+
+    def _open_live_media_placeholder(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="CAMERA / LIVE MEDIA\n\n"
+                 "This build can select files, but it does not yet capture or stream live "
+                 "camera video, and binary image/audio/video contents are not uploaded to "
+                 "the LLM. A real implementation needs Android capture permissions, a "
+                 "supported real-time transport, and explicit user controls."
+        ))
+        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        content.add_widget(close)
+        popup = Popup(title="CAMERA / LIVE MEDIA", content=content, size_hint=(0.94, 0.6))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        self._append_report("live_media_placeholder_opened", capture_started=False, streaming_started=False)
 
     def _open_remote_participant(self, *_: Any) -> None:
         from remote_participant import get_status
@@ -867,6 +900,12 @@ class YJ64BaseApp(App):
             height=110,
             write_tab=False,
         )
+        cycle_row = BoxLayout(spacing=8, size_hint_y=None, height=48)
+        cycle_row.add_widget(Label(text="Rounds per participant:", size_hint_x=0.65))
+        cycles_input = TextInput(
+            text="3", multiline=False, input_filter="int", size_hint_x=0.35,
+        )
+        cycle_row.add_widget(cycles_input)
         controls = BoxLayout(
             spacing=8,
             size_hint_y=None,
@@ -881,6 +920,7 @@ class YJ64BaseApp(App):
         close = Button(text="CLOSE", size_hint_y=None, height=54)
         content.add_widget(output)
         content.add_widget(prompt)
+        content.add_widget(cycle_row)
         content.add_widget(controls)
         content.add_widget(close)
 
@@ -907,7 +947,7 @@ class YJ64BaseApp(App):
             self._append_report("group_dialogue_stop_requested")
             append_chat("[STOP REQUESTED] Waiting for the current request to finish.")
 
-        def run_dialogue(question: str) -> None:
+        def run_dialogue(question: str, max_cycles: int) -> None:
             messages: list[dict[str, str]] = [
                 {"speaker": "Owner", "text": question}
             ]
@@ -917,10 +957,13 @@ class YJ64BaseApp(App):
                 "group_dialogue_started",
                 participants=participants,
                 question=question,
+                max_cycles=max_cycles,
+                max_turns=max_cycles * len(participants),
             )
 
             while (
-                not state["stop_requested"]
+                turn < max_cycles * len(participants)
+                and not state["stop_requested"]
                 and self.message_distributor.dialogue_enabled
             ):
                 participant = self.message_distributor.next_participant(participants)
@@ -1007,6 +1050,15 @@ class YJ64BaseApp(App):
             question = prompt.text.strip()
             if not question:
                 return
+            try:
+                max_cycles = int(cycles_input.text or "3")
+            except ValueError:
+                cycles_input.text = "3"
+                self.status.text = "Dialogue rounds must be a number from 1 to 20."
+                return
+            if not 1 <= max_cycles <= 20:
+                self.status.text = "Dialogue rounds must be between 1 and 20."
+                return
             self.message_distributor.set_dialogue_enabled(True)
             state["running"] = True
             state["stop_requested"] = False
@@ -1017,7 +1069,7 @@ class YJ64BaseApp(App):
             from threading import Thread
             Thread(
                 target=run_dialogue,
-                args=(question,),
+                args=(question, max_cycles),
                 name="yj64-group-dialogue",
                 daemon=True,
             ).start()
