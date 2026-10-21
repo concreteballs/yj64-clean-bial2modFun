@@ -81,57 +81,68 @@ class YJ64BaseApp(App):
 
         self.ui_language = self._load_language()
         self.participant_live_status = {"Participant 1": False, "Participant 2": False, "Participant 3": False}
-        root = BoxLayout(orientation="vertical", padding=(8, 6), spacing=5)
-        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=8, padding=(4, 0))
-        self.title_label = Label(text=self._t(0), halign="left", valign="middle", bold=True, font_size="20sp", color=(0.08, 0.22, 0.40, 1))
+        Window.clearcolor = (0.025, 0.045, 0.095, 1)
+        root = BoxLayout(orientation="vertical", padding=(6, 5), spacing=5)
+        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=7, padding=(2, 0))
+        self.menu_button = Button(text="☰", size_hint_x=None, width=48, background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.94,0.97,1,1), font_size="23sp")
+        self.menu_button.bind(on_release=self._open_main_menu)
+        header.add_widget(self.menu_button)
+        self.title_label = Label(text=self._t(0), halign="left", valign="middle", bold=True, font_size="18sp", color=(0.91,0.95,1,1))
         self.title_label.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
         header.add_widget(self.title_label)
-        self.language_button = Button(text="ЯЗЫК", size_hint_x=None, width=84, background_normal="", background_down="", background_color=(0.18,0.43,0.68,1), color=(1,1,1,1), font_size="12sp")
+        self.language_button = Button(text="LANG", size_hint_x=None, width=72, background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1), font_size="11sp")
         self.language_button.bind(on_release=self._show_language_picker)
         header.add_widget(self.language_button)
         root.add_widget(header)
-        self.status = Label(text="Starting embedded diagnostic agent…", halign="left", valign="middle", size_hint_y=None, height=30, color=(0.20,0.29,0.38,1), font_size="11sp")
-        self.status.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
-        root.add_widget(self.status)
-        self.participants_heading = Label(text=self._t(2).upper(), size_hint_y=None, height=22, color=(0.08,0.28,0.48,1), bold=True, halign="left", valign="middle", font_size="11sp")
-        root.add_widget(self.participants_heading)
-        participant_row = GridLayout(cols=3, spacing=6, size_hint_y=None, height=48)
-        self.participant_buttons = {}
-        for participant_name in ("Participant 1", "Participant 2", "Participant 3"):
-            button = Button(text=self._participant_label(participant_name), size_hint_y=None, height=46, font_size="10sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.78,0.84,0.90,1), color=(0.10,0.20,0.30,1))
-            button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-8), max(1,value[1]-6))))
-            button.bind(on_release=lambda _button, name=participant_name: self._open_participant_menu(name))
-            self.participant_buttons[participant_name] = button
-            participant_row.add_widget(button)
-        root.add_widget(participant_row)
-        self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=26, color=(0.08,0.28,0.48,1), bold=True, halign="left", valign="middle", font_size="13sp")
+
+        self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=23, color=(0.61,0.76,0.96,1), bold=True, halign="left", valign="middle", font_size="12sp")
         root.add_widget(self.chat_heading)
-        self.chat_scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=6, scroll_type=["bars","content"], bar_color=(0.18,0.43,0.68,0.9), bar_inactive_color=(0.18,0.43,0.68,0.25))
-        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(180,Window.height*0.38), padding=(12,10), font_size="14sp", background_color=(0.97,0.985,1,1), foreground_color=(0.08,0.13,0.20,1))
+        chat_area = BoxLayout(orientation="horizontal", spacing=6)
+        self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=4, scroll_type=["bars","content"], bar_color=(0.28,0.53,0.85,0.9), bar_inactive_color=(0.28,0.53,0.85,0.25))
+        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(180,Window.height*0.55), padding=(10,10), font_size="14sp", background_normal="", background_active="", background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1), cursor_color=(0.91,0.95,1,1))
         self.chat_output.bind(text=self._resize_chat_output)
         self.chat_scroll.add_widget(self.chat_output)
-        root.add_widget(self.chat_scroll)
-        self.chat_input_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=58)
-        self.chat_input = TextInput(hint_text=self._t(3), multiline=True, write_tab=False, input_type="text", keyboard_suggestions=True, size_hint_y=None, height=52, padding=(10,8), font_size="14sp", background_color=(1,1,1,1), foreground_color=(0.08,0.13,0.20,1))
+        chat_area.add_widget(self.chat_scroll)
+
+        participant_panel = BoxLayout(orientation="vertical", size_hint_x=None, width=98, spacing=5)
+        self.participants_heading = Label(text=self._t(2).upper(), size_hint_y=None, height=24, color=(0.61,0.76,0.96,1), bold=True, halign="center", valign="middle", font_size="9sp")
+        participant_panel.add_widget(self.participants_heading)
+        self.participant_buttons = {}
+        for participant_name in ("Participant 1", "Participant 2", "Participant 3"):
+            button = Button(text=self._participant_label(participant_name), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-6), max(1,value[1]-6))))
+            button.bind(on_release=lambda _button, name=participant_name: self._open_participant_menu(name))
+            self.participant_buttons[participant_name] = button
+            participant_panel.add_widget(button)
+        self.remote_participant_button = Button(text=self._t(12), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(0.91,0.95,1,1))
+        self.remote_participant_button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-6), max(1,value[1]-6))))
+        self.remote_participant_button.bind(on_release=self._open_remote_participant)
+        participant_panel.add_widget(self.remote_participant_button)
+        chat_area.add_widget(participant_panel)
+        root.add_widget(chat_area)
+
+        self.chat_input_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=78)
+        self.chat_input = TextInput(hint_text=self._t(3), multiline=True, write_tab=False, input_type="text", keyboard_suggestions=True, size_hint_y=None, height=72, padding=(10,8), font_size="14sp", background_normal="", background_active="", background_color=(0.07,0.11,0.20,1), foreground_color=(0.95,0.97,1,1), cursor_color=(0.95,0.97,1,1))
         self.chat_input.bind(focus=self._chat_input_focus_changed, text=self._resize_chat_input)
         self.chat_input_row.add_widget(self.chat_input)
-        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=92, background_normal="", background_down="", background_color=(0.12,0.39,0.66,1), color=(1,1,1,1), font_size="12sp")
+        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=76, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="12sp")
         self.chat_send_button.bind(on_release=self._send_llm_chat)
         self.chat_input_row.add_widget(self.chat_send_button)
         root.add_widget(self.chat_input_row)
-        action_grid = GridLayout(cols=2, spacing=5, size_hint_y=None, row_default_height=43, row_force_default=True)
+
+        action_grid = GridLayout(cols=3, spacing=5, size_hint_y=None, row_default_height=39, row_force_default=True)
         action_grid.bind(minimum_height=action_grid.setter("height"))
         self.action_buttons = []
-        actions = [(5,self._open_tools_menu),(6,self._show_chats),(7,self._new_chat),(8,self._attach_file),(9,self._open_live_media_placeholder),(10,self._toggle_critique_mode),(11,self._open_skills_editor),(12,self._open_remote_participant),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
+        actions = [(8,self._attach_file),(9,self._open_live_media_placeholder),(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
         for key, callback in actions:
-            button = Button(text=self._t(key), size_hint_y=None, height=43, font_size="10sp", halign="center", valign="middle", background_normal="", background_color=(0.82,0.90,0.97,1), color=(0.07,0.22,0.38,1))
-            button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-10),max(1,value[1]-6))))
+            button = Button(text=self._t(key), size_hint_y=None, height=39, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-8),max(1,value[1]-6))))
             button.bind(on_release=callback)
             action_grid.add_widget(button)
             self.action_buttons.append((key,button))
             if key == 10:
                 self.critique_mode_button = button
-                self.critique_mode_button.background_color = (0.15,0.65,0.25,1)
+                self.critique_mode_button.background_color = (0.12,0.36,0.32,1)
             elif key == 13:
                 self.practical_mode_button = button
             elif key == 14:
@@ -161,6 +172,29 @@ class YJ64BaseApp(App):
         )
         return root
 
+    def _open_main_menu(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        popup = Popup(title="YJ-64 MENU", content=content, size_hint=(0.88, 0.62))
+        actions = [
+            (self._t(5), self._open_tools_menu),
+            (self._t(6), self._show_chats),
+            (self._t(7), self._new_chat),
+            (self._t(11), self._open_skills_editor),
+        ]
+        for label, callback in actions:
+            button = Button(text=label, size_hint_y=None, height=50, font_size="13sp",
+                            background_normal="", background_down="",
+                            background_color=(0.10,0.20,0.36,1), color=(0.93,0.96,1,1))
+            button.bind(on_release=lambda _button, action=callback: (popup.dismiss(), action()))
+            content.add_widget(button)
+        close = Button(text="CLOSE", size_hint_y=None, height=42,
+                       background_normal="", background_color=(0.13,0.31,0.53,1),
+                       color=(1,1,1,1))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+        self._append_report("main_menu_opened", actions=["tools_monitor", "chats", "new_chat", "global_skills_file"])
+
     def _load_language(self) -> str | None:
         path = Path(self.user_data_dir) / "yj64-language.json"
         try:
@@ -174,6 +208,7 @@ class YJ64BaseApp(App):
 
     def _apply_language(self) -> None:
         self.title_label.text = self._t(0)
+        self.remote_participant_button.text = self._t(12) if hasattr(self, "remote_participant_button") else self._t(12)
         self.chat_heading.text = self._t(1)
         self.participants_heading.text = self._t(2).upper()
         self.language_button.text = {"ru":"ЯЗЫК","en":"LANG","es":"IDIOMA","zh":"语言","hi":"भाषा","ar":"اللغة","fr":"LANGUE","pt":"IDIOMA","de":"SPRACHE","ja":"言語","ko":"언어","it":"LINGUA","tr":"DİL","id":"BAHASA"}.get(self.ui_language or "en", "LANG")
@@ -238,7 +273,7 @@ class YJ64BaseApp(App):
     def _resize_chat_input(self, *_: Any) -> None:
         if not hasattr(self,"chat_input"):
             return
-        height = min(112,max(52,len(self.chat_input.text.splitlines())*22+18))
+        height = min(112,max(72,len(self.chat_input.text.splitlines())*22+18))
         self.chat_input.height = height
         if self.chat_input.parent is not None:
             self.chat_input.parent.height = height+6
