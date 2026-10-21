@@ -82,30 +82,40 @@ class YJ64BaseApp(App):
         self.ui_language = self._load_language()
         self.participant_live_status = {"Participant 1": False, "Participant 2": False, "Participant 3": False}
         root = BoxLayout(orientation="vertical", padding=(8, 6), spacing=5)
-        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=6)
-        self.title_label = Label(text=self._t(0), halign="left", bold=True, color=(0.08, 0.22, 0.40, 1))
+        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=8, padding=(4, 0))
+        self.title_label = Label(text=self._t(0), halign="left", valign="middle", bold=True, font_size="20sp", color=(0.08, 0.22, 0.40, 1))
+        self.title_label.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
         header.add_widget(self.title_label)
-        self.participants_button = Button(text=self._t(2)+"  ▾", size_hint_x=None, width=132, background_normal="", background_color=(0.18,0.43,0.68,1), color=(1,1,1,1), font_size="12sp")
-        self.participants_button.bind(on_release=self._open_participants_menu)
-        header.add_widget(self.participants_button)
-        language_button = Button(text="文 / A", size_hint_x=None, width=58, background_normal="", background_color=(0.30,0.54,0.76,1), color=(1,1,1,1))
-        language_button.bind(on_release=self._show_language_picker)
-        header.add_widget(language_button)
+        self.language_button = Button(text="ЯЗЫК", size_hint_x=None, width=84, background_normal="", background_down="", background_color=(0.18,0.43,0.68,1), color=(1,1,1,1), font_size="12sp")
+        self.language_button.bind(on_release=self._show_language_picker)
+        header.add_widget(self.language_button)
         root.add_widget(header)
-        self.status = Label(text="Starting embedded diagnostic agent…", halign="left", valign="middle", size_hint_y=None, height=34, color=(0.20,0.29,0.38,1))
+        self.status = Label(text="Starting embedded diagnostic agent…", halign="left", valign="middle", size_hint_y=None, height=30, color=(0.20,0.29,0.38,1), font_size="11sp")
+        self.status.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
         root.add_widget(self.status)
-        self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=28, color=(0.08,0.28,0.48,1), bold=True, halign="left")
+        self.participants_heading = Label(text=self._t(2).upper(), size_hint_y=None, height=22, color=(0.08,0.28,0.48,1), bold=True, halign="left", valign="middle", font_size="11sp")
+        root.add_widget(self.participants_heading)
+        participant_row = GridLayout(cols=3, spacing=6, size_hint_y=None, height=48)
+        self.participant_buttons = {}
+        for participant_name in ("Participant 1", "Participant 2", "Participant 3"):
+            button = Button(text=self._participant_label(participant_name), size_hint_y=None, height=46, font_size="10sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.78,0.84,0.90,1), color=(0.10,0.20,0.30,1))
+            button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-8), max(1,value[1]-6))))
+            button.bind(on_release=lambda _button, name=participant_name: self._open_participant_menu(name))
+            self.participant_buttons[participant_name] = button
+            participant_row.add_widget(button)
+        root.add_widget(participant_row)
+        self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=26, color=(0.08,0.28,0.48,1), bold=True, halign="left", valign="middle", font_size="13sp")
         root.add_widget(self.chat_heading)
         self.chat_scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, bar_width=6, scroll_type=["bars","content"], bar_color=(0.18,0.43,0.68,0.9), bar_inactive_color=(0.18,0.43,0.68,0.25))
-        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(180,Window.height*0.38), padding=(10,10), background_color=(0.97,0.985,1,1), foreground_color=(0.08,0.13,0.20,1))
+        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(180,Window.height*0.38), padding=(12,10), font_size="14sp", background_color=(0.97,0.985,1,1), foreground_color=(0.08,0.13,0.20,1))
         self.chat_output.bind(text=self._resize_chat_output)
         self.chat_scroll.add_widget(self.chat_output)
         root.add_widget(self.chat_scroll)
         self.chat_input_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=58)
-        self.chat_input = TextInput(hint_text=self._t(3), multiline=True, write_tab=False, input_type="text", keyboard_suggestions=True, size_hint_y=None, height=52, padding=(9,8), background_color=(1,1,1,1), foreground_color=(0.08,0.13,0.20,1))
+        self.chat_input = TextInput(hint_text=self._t(3), multiline=True, write_tab=False, input_type="text", keyboard_suggestions=True, size_hint_y=None, height=52, padding=(10,8), font_size="14sp", background_color=(1,1,1,1), foreground_color=(0.08,0.13,0.20,1))
         self.chat_input.bind(focus=self._chat_input_focus_changed, text=self._resize_chat_input)
         self.chat_input_row.add_widget(self.chat_input)
-        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=86, background_normal="", background_color=(0.12,0.39,0.66,1), color=(1,1,1,1), font_size="12sp")
+        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=92, background_normal="", background_down="", background_color=(0.12,0.39,0.66,1), color=(1,1,1,1), font_size="12sp")
         self.chat_send_button.bind(on_release=self._send_llm_chat)
         self.chat_input_row.add_widget(self.chat_send_button)
         root.add_widget(self.chat_input_row)
@@ -165,11 +175,34 @@ class YJ64BaseApp(App):
     def _apply_language(self) -> None:
         self.title_label.text = self._t(0)
         self.chat_heading.text = self._t(1)
-        self.participants_button.text = self._t(2) + "  ▾"
+        self.participants_heading.text = self._t(2).upper()
+        self.language_button.text = {"ru":"ЯЗЫК","en":"LANG","es":"IDIOMA","zh":"语言","hi":"भाषा","ar":"اللغة","fr":"LANGUE","pt":"IDIOMA","de":"SPRACHE","ja":"言語","ko":"언어","it":"LINGUA","tr":"DİL","id":"BAHASA"}.get(self.ui_language or "en", "LANG")
+        for name, button in getattr(self, "participant_buttons", {}).items():
+            button.text = self._participant_label(name)
         self.chat_input.hint_text = self._t(3)
         self.chat_send_button.text = self._t(4)
         for key, button in getattr(self, "action_buttons", []):
             button.text = self._t(key)
+
+    def _participant_label(self, participant_name: str) -> str:
+        index = int(participant_name.rsplit(" ", 1)[-1]) - 1
+        labels = {
+            "ru": ("Участник 1", "Участник 2", "Участник 3"),
+            "en": ("Participant 1", "Participant 2", "Participant 3"),
+            "es": ("Participante 1", "Participante 2", "Participante 3"),
+            "zh": ("参与者 1", "参与者 2", "参与者 3"),
+            "hi": ("प्रतिभागी 1", "प्रतिभागी 2", "प्रतिभागी 3"),
+            "ar": ("المشارك 1", "المشارك 2", "المشارك 3"),
+            "fr": ("Participant 1", "Participant 2", "Participant 3"),
+            "pt": ("Participante 1", "Participante 2", "Participante 3"),
+            "de": ("Teilnehmer 1", "Teilnehmer 2", "Teilnehmer 3"),
+            "ja": ("参加者 1", "参加者 2", "参加者 3"),
+            "ko": ("참여자 1", "참여자 2", "참여자 3"),
+            "it": ("Partecipante 1", "Partecipante 2", "Partecipante 3"),
+            "tr": ("Katılımcı 1", "Katılımcı 2", "Katılımcı 3"),
+            "id": ("Peserta 1", "Peserta 2", "Peserta 3"),
+        }
+        return labels.get(self.ui_language or "en", labels["en"])[index]
 
     def _choose_language(self, code: str, popup: Popup) -> None:
         self.ui_language = code
@@ -598,9 +631,11 @@ class YJ64BaseApp(App):
 
     def _refresh_participant_buttons(self, *_: Any) -> None:
         # Green means a real request succeeded; a configured key alone is not a connection.
-        if hasattr(self,"participants_button"):
-            count = sum(1 for value in self.participant_live_status.values() if value)
-            self.participants_button.background_color = (0.12,0.55,0.30,1) if count else (0.18,0.43,0.68,1)
+        for name, button in getattr(self, "participant_buttons", {}).items():
+            verified = bool(self.participant_live_status.get(name, False))
+            button.background_color = (0.18,0.55,0.32,1) if verified else (0.78,0.84,0.90,1)
+            button.color = (1,1,1,1) if verified else (0.10,0.20,0.30,1)
+            button.text = self._participant_label(name)
 
     def _open_participant_menu(self, participant_name: str) -> None:
         status = self._participant_config_status(participant_name)
