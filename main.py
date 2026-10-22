@@ -21,6 +21,45 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.filechooser import FileChooserListView
 
+class FeedbackButton(Button):
+    """Button with tactile and visual press feedback."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._feedback_base_color = tuple(self.background_color)
+    def on_press(self):
+        self._feedback_base_color = tuple(self.background_color)
+        r, g, b, a = self._feedback_base_color
+        self.background_color = (r * 0.78, g * 0.78, b * 0.78, a)
+        try:
+            from plyer import vibrator
+            vibrator.vibrate(time=0.025)
+        except Exception:
+            pass
+    def on_release(self):
+        self.background_color = self._feedback_base_color
+
+class DialogueControlButton(FeedbackButton):
+    """Tap toggles dialogue; long press opens round settings."""
+    def __init__(self, short_callback, long_callback, **kwargs):
+        self._short_callback, self._long_callback = short_callback, long_callback
+        self._long_press_event = None
+        self._long_press_fired = False
+        super().__init__(**kwargs)
+        self.bind(on_press=self._start_long_press, on_release=self._finish_press)
+    def _start_long_press(self, *_):
+        self._long_press_fired = False
+        self._long_press_event = Clock.schedule_once(self._fire_long_press, 0.55)
+    def _fire_long_press(self, *_):
+        self._long_press_fired = True
+        self._long_callback()
+    def _finish_press(self, *_):
+        if self._long_press_event is not None:
+            self._long_press_event.cancel()
+            self._long_press_event = None
+        if not self._long_press_fired:
+            self._short_callback()
+
+
 Window.softinput_mode = "below_target"
 Window.clearcolor = (0.91, 0.95, 0.99, 1)
 
@@ -86,19 +125,21 @@ class YJ64BaseApp(App):
         self.participant_live_status = {"Participant 1": False, "Participant 2": False, "Participant 3": False}
         Window.clearcolor = (0.025, 0.045, 0.095, 1)
         root = BoxLayout(orientation="vertical", padding=(6, 5), spacing=5)
-        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=7, padding=(2, 0))
-        self.menu_button = Button(text="☰", size_hint_x=None, width=48, background_normal="", background_down="", background_color=(0.16,0.34,0.58,1), color=(1,1,1,1), font_size="26sp", bold=True)
+        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4, padding=(1, 0))
+        self.menu_button = FeedbackButton(text="☰", size_hint_x=None, width=42, background_normal="", background_down="", background_color=(0.16,0.34,0.58,1), color=(1,1,1,1), font_size="26sp", bold=True)
         self.menu_button.bind(on_release=self._open_main_menu)
         header.add_widget(self.menu_button)
         self.title_label = Label(text=self._t(0), halign="left", valign="middle", bold=True, font_size="18sp", color=(0.91,0.95,1,1))
         self.title_label.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0], value[1])))
         header.add_widget(self.title_label)
-        self.language_button = Button(text="LANG", size_hint_x=None, width=72, background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1), font_size="11sp")
+        self.language_button = FeedbackButton(text="ЯЗЫК", size_hint_x=None, width=58, background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1), font_size="11sp")
         self.language_button.bind(on_release=self._show_language_picker)
         header.add_widget(self.language_button)
         root.add_widget(header)
 
-        self.stop_discussion_button = Button(
+        self.stop_discussion_button = DialogueControlButton(
+            short_callback=self._toggle_main_discussion,
+            long_callback=self._open_discussion_menu,
             text=self._discussion_button_text(),
             size_hint_y=None,
             height=46,
@@ -109,15 +150,14 @@ class YJ64BaseApp(App):
             background_color=(0.72, 0.19, 0.22, 1),
             color=(1, 1, 1, 1),
         )
-        self.stop_discussion_button.bind(on_release=self._open_discussion_menu)
-        root.add_widget(self.stop_discussion_button)
+                root.add_widget(self.stop_discussion_button)
 
         action_grid = GridLayout(cols=3, spacing=6, size_hint_y=None, row_default_height=48, row_force_default=True)
         action_grid.bind(minimum_height=action_grid.setter("height"))
         self.action_buttons = []
         actions = [(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
         for key, callback in actions:
-            button = Button(text=self._t(key), size_hint_y=None, height=48, font_size="11sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button = FeedbackButton(text=self._t(key), size_hint_y=None, height=48, font_size="11sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
             button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-8),max(1,value[1]-6))))
             button.bind(on_release=callback)
             action_grid.add_widget(button)
@@ -132,9 +172,9 @@ class YJ64BaseApp(App):
                 self.implementation_button.disabled = True
         root.add_widget(action_grid)
 
-        self.chat_nav_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=36)
-        self.chat_top_button = Button(text="↑ TOP", size_hint_x=0.5, size_hint_y=None, height=34, font_size="11sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
-        self.chat_bottom_button = Button(text="↓ BOTTOM", size_hint_x=0.5, size_hint_y=None, height=34, font_size="11sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_nav_row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=32)
+        self.chat_top_button = FeedbackButton(text="↑ ВВЕРХ", size_hint_x=0.5, size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_bottom_button = FeedbackButton(text="↓ ВНИЗ", size_hint_x=0.5, size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
         self.chat_top_button.bind(on_release=lambda *_: setattr(self.chat_scroll, "scroll_y", 1))
         self.chat_bottom_button.bind(on_release=lambda *_: setattr(self.chat_scroll, "scroll_y", 0))
         self.chat_nav_row.add_widget(self.chat_top_button)
@@ -154,12 +194,12 @@ class YJ64BaseApp(App):
         participant_panel.add_widget(self.participants_heading)
         self.participant_buttons = {}
         for participant_name in ("Participant 1", "Participant 2", "Participant 3"):
-            button = Button(text=self._participant_label(participant_name), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button = FeedbackButton(text=self._participant_label(participant_name), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
             button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-6), max(1,value[1]-6))))
             button.bind(on_release=lambda _button, name=participant_name: self._open_participant_menu(name))
             self.participant_buttons[participant_name] = button
             participant_panel.add_widget(button)
-        self.remote_participant_button = Button(text=self._t(12), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(0.91,0.95,1,1))
+        self.remote_participant_button = FeedbackButton(text=self._t(12), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(0.91,0.95,1,1))
         self.remote_participant_button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-6), max(1,value[1]-6))))
         self.remote_participant_button.bind(on_release=self._open_remote_participant)
         participant_panel.add_widget(self.remote_participant_button)
@@ -167,13 +207,13 @@ class YJ64BaseApp(App):
         root.add_widget(chat_area)
 
         self.chat_send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=44)
-        self.chat_send_button = Button(text=self._t(4), size_hint_x=1, size_hint_y=None, height=42, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="13sp", bold=True)
+        self.chat_send_button = FeedbackButton(text=self._t(4), size_hint_x=1, size_hint_y=None, height=42, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="13sp", bold=True)
         self.chat_send_button.bind(on_release=self._send_llm_chat)
         self.chat_send_row.add_widget(self.chat_send_button)
         root.add_widget(self.chat_send_row)
 
         self.chat_input_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=78)
-        self.attach_menu_button = Button(text="+", size_hint_x=None, width=46, background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1), font_size="25sp", bold=True)
+        self.attach_menu_button = FeedbackButton(text="+", size_hint_x=None, width=46, background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1), font_size="25sp", bold=True)
         self.attach_menu_button.bind(on_release=self._open_attachment_menu)
         self.chat_input_row.add_widget(self.attach_menu_button)
         self.chat_input = TextInput(hint_text=self._t(3), multiline=True, write_tab=False, input_type="text", keyboard_suggestions=True, size_hint_y=None, height=72, padding=(10,8), font_size="14sp", background_normal="", background_active="", background_color=(0.07,0.11,0.20,1), foreground_color=(0.95,0.97,1,1), cursor_color=(0.95,0.97,1,1))
@@ -214,12 +254,12 @@ class YJ64BaseApp(App):
             (self._t(11), self._open_skills_editor),
         ]
         for label, callback in actions:
-            button = Button(text=label, size_hint_y=None, height=50, font_size="13sp",
+            button = FeedbackButton(text=label, size_hint_y=None, height=50, font_size="13sp",
                             background_normal="", background_down="",
                             background_color=(0.10,0.20,0.36,1), color=(0.93,0.96,1,1))
             button.bind(on_release=lambda _button, action=callback: (popup.dismiss(), action()))
             content.add_widget(button)
-        close = Button(text="CLOSE", size_hint_y=None, height=42,
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=42,
                        background_normal="", background_color=(0.13,0.31,0.53,1),
                        color=(1,1,1,1))
         close.bind(on_release=lambda *_: popup.dismiss())
@@ -267,15 +307,15 @@ class YJ64BaseApp(App):
 
     def _open_discussion_menu(self, *_: Any) -> None:
         content = BoxLayout(orientation="vertical", spacing=7, padding=10)
-        popup = Popup(title="DIALOGUE CONTROL", content=content, size_hint=(0.88, 0.66))
-        for label, rounds in [("1 round",1),("2 rounds",2),("3 rounds (default)",3),("5 rounds",5),("10 rounds",10),("Unlimited — until stopped",0)]:
-            button = Button(text=("✓ " if self.dialogue_round_limit == rounds else "") + label, size_hint_y=None, height=43)
+        popup = Popup(title="УПРАВЛЕНИЕ ДИАЛОГОМ", content=content, size_hint=(0.88, 0.66))
+        for label, rounds in [("1 раунд",1),("2 раунда",2),("3 раунда (обычно)",3),("5 раундов",5),("10 раундов",10),("Без ограничений — до остановки",0)]:
+            button = FeedbackButton(text=("✓ " if self.dialogue_round_limit == rounds else "") + label, size_hint_y=None, height=43)
             button.bind(on_release=lambda _button, value=rounds: self._set_dialogue_rounds(value, popup))
             content.add_widget(button)
-        toggle = Button(text=("STOP" if self.message_distributor.dialogue_enabled else "RESUME") + " DISCUSSION", size_hint_y=None, height=46)
+        toggle = FeedbackButton(text=("ОСТАНОВИТЬ" if self.message_distributor.dialogue_enabled else "ВОЗОБНОВИТЬ") + " ОБСУЖДЕНИЕ", size_hint_y=None, height=46)
         toggle.bind(on_release=lambda *_: (popup.dismiss(), self._toggle_main_discussion()))
         content.add_widget(toggle)
-        close = Button(text="CLOSE", size_hint_y=None, height=38)
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=38)
         close.bind(on_release=lambda *_: popup.dismiss())
         content.add_widget(close)
         popup.open()
@@ -303,14 +343,14 @@ class YJ64BaseApp(App):
             (self._t(8), self._attach_file),
             (self._t(9), self._open_live_media_placeholder),
         ):
-            button = Button(
+            button = FeedbackButton(
                 text=label, size_hint_y=None, height=52, font_size="14sp",
                 background_normal="", background_down="",
                 background_color=(0.10, 0.20, 0.36, 1), color=(0.93, 0.96, 1, 1),
             )
             button.bind(on_release=lambda _button, action=callback: (popup.dismiss(), action()))
             content.add_widget(button)
-        close = Button(text="CLOSE", size_hint_y=None, height=42)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=42)
         close.bind(on_release=lambda *_: popup.dismiss())
         content.add_widget(close)
         popup.open()
@@ -367,12 +407,12 @@ class YJ64BaseApp(App):
         items.bind(minimum_height=items.setter("height"))
         popup = Popup(title="CHOOSE LANGUAGE / ВЫБЕРИТЕ ЯЗЫК", content=content, size_hint=(0.92,0.82))
         for code,label in UI_LANGUAGES:
-            button = Button(text=label,size_hint_y=None,height=46,background_normal="",background_color=(0.18,0.43,0.68,1),color=(1,1,1,1))
+            button = FeedbackButton(text=label,size_hint_y=None,height=46,background_normal="",background_color=(0.18,0.43,0.68,1),color=(1,1,1,1))
             button.bind(on_release=lambda _button,language=code:self._choose_language(language,popup))
             items.add_widget(button)
         listing.add_widget(items)
         content.add_widget(listing)
-        close = Button(text="CLOSE",size_hint_y=None,height=44)
+        close = FeedbackButton(text="CLOSE",size_hint_y=None,height=44)
         close.bind(on_release=lambda *_:popup.dismiss())
         content.add_widget(close)
         popup.open()
@@ -409,16 +449,16 @@ class YJ64BaseApp(App):
             state_text = "AVAILABLE — last request succeeded" if verified else "NOT VERIFIED / unavailable"
             provider = state["provider"] or "No provider"
             model = state["model"] or "No model"
-            button = Button(text=f"{name}\n{provider} / {model}\n{state_text}",size_hint_y=None,height=76,halign="left",valign="middle",background_normal="",background_color=(0.76,0.92,0.80,1) if verified else (0.87,0.89,0.92,1),color=(0.08,0.20,0.13,1) if verified else (0.22,0.25,0.29,1))
+            button = FeedbackButton(text=f"{name}\n{provider} / {model}\n{state_text}",size_hint_y=None,height=76,halign="left",valign="middle",background_normal="",background_color=(0.76,0.92,0.80,1) if verified else (0.87,0.89,0.92,1),color=(0.08,0.20,0.13,1) if verified else (0.22,0.25,0.29,1))
             button.bind(size=lambda instance,value:setattr(instance,"text_size",(max(1,value[0]-18),value[1]-8)))
             button.bind(on_release=lambda _button,participant=name:(popup.dismiss(),self._open_participant_menu(participant)))
             items.add_widget(button)
-        remote = Button(text="REMOTE DEVICE / ADMIN MODULE (CURRENTLY A STUB)",size_hint_y=None,height=54,background_normal="",background_color=(0.87,0.89,0.92,1),color=(0.22,0.25,0.29,1))
+        remote = FeedbackButton(text="REMOTE DEVICE / ADMIN MODULE (CURRENTLY A STUB)",size_hint_y=None,height=54,background_normal="",background_color=(0.87,0.89,0.92,1),color=(0.22,0.25,0.29,1))
         remote.bind(on_release=lambda *_:(popup.dismiss(),self._open_remote_participant()))
         items.add_widget(remote)
         listing.add_widget(items)
         content.add_widget(listing)
-        close = Button(text="CLOSE",size_hint_y=None,height=44)
+        close = FeedbackButton(text="CLOSE",size_hint_y=None,height=44)
         close.bind(on_release=lambda *_:popup.dismiss())
         content.add_widget(close)
         popup.open()
@@ -459,7 +499,7 @@ class YJ64BaseApp(App):
         popup = Popup(title="SAVED CHATS", content=content, size_hint=(0.94, 0.86))
         for item in self.workspace.list_chats():
             title = str(item.get("title") or "Untitled chat")
-            button = Button(
+            button = FeedbackButton(
                 text=f"{title}\n{str(item['id'])[:8]}",
                 size_hint_y=None, height=62,
             )
@@ -470,7 +510,7 @@ class YJ64BaseApp(App):
             items.add_widget(button)
         listing.add_widget(items)
         content.add_widget(listing)
-        branch_button = Button(
+        branch_button = FeedbackButton(
             text="CREATE BRANCH FROM CURRENT CHAT",
             size_hint_y=None, height=52,
         )
@@ -482,7 +522,7 @@ class YJ64BaseApp(App):
             self._append_report("workspace_branch_created", chat_id=new_id, parent_id=parent)
         branch_button.bind(on_release=create_branch)
         content.add_widget(branch_button)
-        close = Button(text="CLOSE", size_hint_y=None, height=48)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=48)
         close.bind(on_release=lambda *_: popup.dismiss())
         content.add_widget(close)
         popup.open()
@@ -518,8 +558,8 @@ class YJ64BaseApp(App):
         status = Label(text=f"Stored locally: {self.workspace.skills_path}", size_hint_y=None, height=44)
         content.add_widget(status)
         buttons = BoxLayout(size_hint_y=None, height=52, spacing=8)
-        save = Button(text="SAVE SKILLS")
-        close = Button(text="CLOSE")
+        save = FeedbackButton(text="SAVE SKILLS")
+        close = FeedbackButton(text="CLOSE")
         buttons.add_widget(save)
         buttons.add_widget(close)
         content.add_widget(buttons)
@@ -544,8 +584,8 @@ class YJ64BaseApp(App):
         )
         content.add_widget(note)
         buttons = BoxLayout(size_hint_y=None, height=52, spacing=8)
-        attach = Button(text="ATTACH SELECTED")
-        close = Button(text="CLOSE")
+        attach = FeedbackButton(text="ATTACH SELECTED")
+        close = FeedbackButton(text="CLOSE")
         buttons.add_widget(attach)
         buttons.add_widget(close)
         content.add_widget(buttons)
@@ -598,13 +638,13 @@ class YJ64BaseApp(App):
             ("CHATGPT BRIDGE (STUB)", self._open_chatgpt_bridge),
         ]
         for label, callback in actions:
-            button = Button(text=label, size_hint_y=None, height=54)
+            button = FeedbackButton(text=label, size_hint_y=None, height=54)
             def invoke(_button: Any, action: Any = callback) -> None:
                 popup.dismiss()
                 action()
             button.bind(on_release=invoke)
             content.add_widget(button)
-        close = Button(text="CLOSE", size_hint_y=None, height=48)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=48)
         close.bind(on_release=lambda *_: popup.dismiss())
         content.add_widget(close)
         popup.open()
@@ -625,7 +665,7 @@ class YJ64BaseApp(App):
                  + "\n\nNo browser session is read, no credentials are captured, "
                    "and no content is sent to ChatGPT from this screen."
         ))
-        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=52)
         content.add_widget(close)
         popup = Popup(title="CHATGPT BRIDGE", content=content, size_hint=(0.94, 0.62))
         close.bind(on_release=lambda *_: popup.dismiss())
@@ -641,7 +681,7 @@ class YJ64BaseApp(App):
                  "the LLM. A real implementation needs Android capture permissions, a "
                  "supported real-time transport, and explicit user controls."
         ))
-        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=52)
         content.add_widget(close)
         popup = Popup(title="CAMERA / LIVE MEDIA", content=content, size_hint=(0.94, 0.6))
         close.bind(on_release=lambda *_: popup.dismiss())
@@ -658,7 +698,7 @@ class YJ64BaseApp(App):
                  + "\n\nNo network connection or remote command is attempted. "
                    "We will design the administrator's computer module in the next step.",
         ))
-        close = Button(text="CLOSE", size_hint_y=None, height=52)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=52)
         content.add_widget(close)
         popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.94, 0.58))
         close.bind(on_release=lambda *_: popup.dismiss())
@@ -823,7 +863,7 @@ class YJ64BaseApp(App):
         )
         content.add_widget(title)
 
-        write_button = Button(text="WRITE / GET ANSWER", size_hint_y=None, height=56)
+        write_button = FeedbackButton(text="WRITE / GET ANSWER", size_hint_y=None, height=56)
         write_button.bind(
             on_release=lambda *_: (
                 popup.dismiss(),
@@ -832,11 +872,11 @@ class YJ64BaseApp(App):
         )
         content.add_widget(write_button)
 
-        remote_button = Button(text="REMOTE DEVICE / ADMIN MODULE", size_hint_y=None, height=50)
+        remote_button = FeedbackButton(text="REMOTE DEVICE / ADMIN MODULE", size_hint_y=None, height=50)
         remote_button.bind(on_release=lambda *_: (popup.dismiss(), self._open_remote_participant()))
         content.add_widget(remote_button)
 
-        settings_button = Button(text="SETTINGS", size_hint_y=None, height=56)
+        settings_button = FeedbackButton(text="SETTINGS", size_hint_y=None, height=56)
         settings_button.bind(
             on_release=lambda *_: (
                 popup.dismiss(),
@@ -845,7 +885,7 @@ class YJ64BaseApp(App):
         )
         content.add_widget(settings_button)
 
-        close_button = Button(text="CLOSE", size_hint_y=None, height=56)
+        close_button = FeedbackButton(text="CLOSE", size_hint_y=None, height=56)
         close_button.bind(on_release=lambda *_: popup.dismiss())
         content.add_widget(close_button)
 
@@ -906,13 +946,13 @@ class YJ64BaseApp(App):
             height=110,
             write_tab=False,
         )
-        send = Button(text="SEND PRIVATELY", size_hint_y=None, height=54)
-        publish = Button(
+        send = FeedbackButton(text="SEND PRIVATELY", size_hint_y=None, height=54)
+        publish = FeedbackButton(
             text="PUBLISH LAST EXCHANGE TO COMMON CHAT",
             size_hint_y=None,
             height=48,
         )
-        close = Button(text="CLOSE", size_hint_y=None, height=54)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=54)
         content.add_widget(output)
         content.add_widget(prompt)
         content.add_widget(send)
@@ -1117,13 +1157,13 @@ class YJ64BaseApp(App):
             size_hint_y=None,
             height=54,
         )
-        toggle = Button(
+        toggle = FeedbackButton(
             text="START GROUP DIALOGUE",
             size_hint_x=1,
             background_color=(0.85, 0.2, 0.2, 1),
         )
         controls.add_widget(toggle)
-        close = Button(text="CLOSE", size_hint_y=None, height=54)
+        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=54)
         content.add_widget(output)
         content.add_widget(prompt)
         content.add_widget(cycle_row)

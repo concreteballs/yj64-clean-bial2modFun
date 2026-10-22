@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import ssl
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -42,36 +43,50 @@ def _request(
     timeout: float = 30.0,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    try:
-        context = ssl.create_default_context()
+    """Perform a bounded API request with cautious transient-error retries."""
+    max_attempts = 3
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
         try:
-            import certifi
-            context = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            pass
-        body = None
-        request_headers = {"Accept": "application/json", **headers}
-        if payload is not None:
-            body = json.dumps(payload).encode("utf-8")
-            request_headers["Content-Type"] = "application/json"
-        with urlopen(
-            Request(url, headers=request_headers, method=method, data=body),
-            timeout=timeout,
-            context=context,
-        ) as response:
-            raw = response.read().decode("utf-8")
-            parsed = json.loads(raw)
-            if not isinstance(parsed, dict):
-                raise RuntimeError("API returned JSON that is not an object")
-            return parsed
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {exc.code}: {detail[:800]}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"Network error: {exc.reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("API returned invalid JSON") from exc
-
+            context = ssl.create_default_context()
+            try:
+                import certifi
+                context = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                pass
+            body = None
+            request_headers = {"Accept": "application/json", **headers}
+            if payload is not None:
+                body = json.dumps(payload).encode("utf-8")
+                request_headers["Content-Type"] = "application/json"
+            with urlopen(Request(url, headers=request_headers, method=method, data=body), timeout=timeout, context=context) as response:
+                parsed = json.loads(response.read().decode("utf-8"))
+                if not isinstance(parsed, dict):
+                    raise RuntimeError("API returned JSON that is not an object")
+                return parsed
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            last_error = exc
+            if exc.code not in {429, 503} or attempt >= max_attempts:
+                raise RuntimeError(f"HTTP {exc.code} after {attempt} attempt(s): {detail[:800]}") from exc
+            delay = min(2 ** attempt, 8)
+            if exc.code == 429:
+                retry_after = (exc.headers or {}).get("Retry-After", "").strip()
+                try:
+                    delay = max(0.0, float(retry_after))
+                except (TypeError, ValueError):
+                    pass
+                if delay > 8:
+                    raise RuntimeError(f"HTTP 429 after {attempt} attempt(s); Retry-After={retry_after or 'not supplied'}: {detail[:800]}") from exc
+            time.sleep(delay)
+        except URLError as exc:
+            last_error = exc
+            if method.upper() != "GET" or attempt >= max_attempts:
+                raise RuntimeError(f"Network error after {attempt} attempt(s): {exc.reason}") from exc
+            time.sleep(min(2 ** (attempt - 1), 4))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("API returned invalid JSON") from exc
+    raise RuntimeError(f"API request failed after {max_attempts} attempts: {last_error}")
 
 def _route_id(route_id: str | None = None, participant_name: str = "Owner") -> str:
     if route_id:
