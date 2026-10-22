@@ -84,7 +84,7 @@ class YJ64BaseApp(App):
         Window.clearcolor = (0.025, 0.045, 0.095, 1)
         root = BoxLayout(orientation="vertical", padding=(6, 5), spacing=5)
         header = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=7, padding=(2, 0))
-        self.menu_button = Button(text="☰", size_hint_x=None, width=48, background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.94,0.97,1,1), font_size="23sp")
+        self.menu_button = Button(text="☰", size_hint_x=None, width=48, background_normal="", background_down="", background_color=(0.16,0.34,0.58,1), color=(1,1,1,1), font_size="26sp", bold=True)
         self.menu_button.bind(on_release=self._open_main_menu)
         header.add_widget(self.menu_button)
         self.title_label = Label(text=self._t(0), halign="left", valign="middle", bold=True, font_size="18sp", color=(0.91,0.95,1,1))
@@ -95,11 +95,45 @@ class YJ64BaseApp(App):
         header.add_widget(self.language_button)
         root.add_widget(header)
 
+        self.stop_discussion_button = Button(
+            text=self._discussion_button_text(),
+            size_hint_y=None,
+            height=46,
+            font_size="13sp",
+            bold=True,
+            background_normal="",
+            background_down="",
+            background_color=(0.72, 0.19, 0.22, 1),
+            color=(1, 1, 1, 1),
+        )
+        self.stop_discussion_button.bind(on_release=self._toggle_main_discussion)
+        root.add_widget(self.stop_discussion_button)
+
+        action_grid = GridLayout(cols=3, spacing=6, size_hint_y=None, row_default_height=48, row_force_default=True)
+        action_grid.bind(minimum_height=action_grid.setter("height"))
+        self.action_buttons = []
+        actions = [(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
+        for key, callback in actions:
+            button = Button(text=self._t(key), size_hint_y=None, height=48, font_size="11sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-8),max(1,value[1]-6))))
+            button.bind(on_release=callback)
+            action_grid.add_widget(button)
+            self.action_buttons.append((key,button))
+            if key == 10:
+                self.critique_mode_button = button
+                self.critique_mode_button.background_color = (0.12,0.36,0.32,1)
+            elif key == 13:
+                self.practical_mode_button = button
+            elif key == 14:
+                self.implementation_button = button
+                self.implementation_button.disabled = True
+        root.add_widget(action_grid)
+
         self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=23, color=(0.61,0.76,0.96,1), bold=True, halign="left", valign="middle", font_size="12sp")
         root.add_widget(self.chat_heading)
         chat_area = BoxLayout(orientation="horizontal", spacing=6)
         self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=4, scroll_type=["bars","content"], bar_color=(0.28,0.53,0.85,0.9), bar_inactive_color=(0.28,0.53,0.85,0.25))
-        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(180,Window.height*0.55), padding=(10,10), font_size="14sp", background_normal="", background_active="", background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1), cursor_color=(0.91,0.95,1,1))
+        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(150,Window.height*0.45), padding=(10,10), font_size="14sp", background_normal="", background_active="", background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1), cursor_color=(0.91,0.95,1,1))
         self.chat_output.bind(text=self._resize_chat_output)
         self.chat_scroll.add_widget(self.chat_output)
         chat_area.add_widget(self.chat_scroll)
@@ -121,34 +155,22 @@ class YJ64BaseApp(App):
         chat_area.add_widget(participant_panel)
         root.add_widget(chat_area)
 
+        self.chat_send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=44)
+        self.chat_send_row.add_widget(Label(text="", size_hint_x=1))
+        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=112, size_hint_y=None, height=42, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="13sp", bold=True)
+        self.chat_send_button.bind(on_release=self._send_llm_chat)
+        self.chat_send_row.add_widget(self.chat_send_button)
+        root.add_widget(self.chat_send_row)
+
         self.chat_input_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=78)
+        self.attach_menu_button = Button(text="+", size_hint_x=None, width=46, background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1), font_size="25sp", bold=True)
+        self.attach_menu_button.bind(on_release=self._open_attachment_menu)
+        self.chat_input_row.add_widget(self.attach_menu_button)
         self.chat_input = TextInput(hint_text=self._t(3), multiline=True, write_tab=False, input_type="text", keyboard_suggestions=True, size_hint_y=None, height=72, padding=(10,8), font_size="14sp", background_normal="", background_active="", background_color=(0.07,0.11,0.20,1), foreground_color=(0.95,0.97,1,1), cursor_color=(0.95,0.97,1,1))
         self.chat_input.bind(focus=self._chat_input_focus_changed, text=self._resize_chat_input)
         self.chat_input_row.add_widget(self.chat_input)
-        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=76, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="12sp")
-        self.chat_send_button.bind(on_release=self._send_llm_chat)
-        self.chat_input_row.add_widget(self.chat_send_button)
         root.add_widget(self.chat_input_row)
 
-        action_grid = GridLayout(cols=3, spacing=5, size_hint_y=None, row_default_height=39, row_force_default=True)
-        action_grid.bind(minimum_height=action_grid.setter("height"))
-        self.action_buttons = []
-        actions = [(8,self._attach_file),(9,self._open_live_media_placeholder),(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
-        for key, callback in actions:
-            button = Button(text=self._t(key), size_hint_y=None, height=39, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
-            button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-8),max(1,value[1]-6))))
-            button.bind(on_release=callback)
-            action_grid.add_widget(button)
-            self.action_buttons.append((key,button))
-            if key == 10:
-                self.critique_mode_button = button
-                self.critique_mode_button.background_color = (0.12,0.36,0.32,1)
-            elif key == 13:
-                self.practical_mode_button = button
-            elif key == 14:
-                self.implementation_button = button
-                self.implementation_button.disabled = True
-        root.add_widget(action_grid)
         self._apply_language()
         if not self.ui_language:
             Clock.schedule_once(lambda *_: self._show_language_picker(), 0.35)
@@ -206,6 +228,64 @@ class YJ64BaseApp(App):
     def _t(self, index: int) -> str:
         return UI_TEXT.get(self.ui_language or "en", UI_TEXT["en"])[index]
 
+    def _discussion_button_text(self) -> str:
+        labels = {
+            "ru": ("ОСТАНОВИТЬ ОБСУЖДЕНИЕ", "ВОЗОБНОВИТЬ ОБСУЖДЕНИЕ"),
+            "en": ("STOP DISCUSSION", "RESUME DISCUSSION"),
+            "es": ("DETENER DISCUSIÓN", "REANUDAR DISCUSIÓN"),
+            "zh": ("停止讨论", "继续讨论"),
+            "hi": ("चर्चा रोकें", "चर्चा फिर शुरू करें"),
+            "ar": ("إيقاف النقاش", "استئناف النقاش"),
+            "fr": ("ARRÊTER LA DISCUSSION", "REPRENDRE LA DISCUSSION"),
+            "pt": ("PARAR DISCUSSÃO", "RETOMAR DISCUSSÃO"),
+            "de": ("DISKUSSION STOPPEN", "DISKUSSION FORTSETZEN"),
+            "ja": ("議論を停止", "議論を再開"),
+            "ko": ("토론 중지", "토론 재개"),
+            "it": ("FERMA DISCUSSIONE", "RIPRENDI DISCUSSIONE"),
+            "tr": ("TARTIŞMAYI DURDUR", "TARTIŞMAYI SÜRDÜR"),
+            "id": ("HENTIKAN DISKUSI", "LANJUTKAN DISKUSI"),
+        }
+        stop_label, resume_label = labels.get(self.ui_language or "en", labels["en"])
+        return stop_label if self.message_distributor.dialogue_enabled else resume_label
+
+    def _refresh_discussion_button(self) -> None:
+        enabled = self.message_distributor.dialogue_enabled
+        self.stop_discussion_button.text = self._discussion_button_text()
+        self.stop_discussion_button.background_color = (
+            (0.72, 0.19, 0.22, 1) if enabled else (0.12, 0.48, 0.29, 1)
+        )
+
+    def _toggle_main_discussion(self, *_: Any) -> None:
+        enabled = not self.message_distributor.dialogue_enabled
+        self.message_distributor.set_dialogue_enabled(enabled)
+        self._refresh_discussion_button()
+        event = "main_discussion_resumed" if enabled else "main_discussion_stopped"
+        self._append_report(event, source="main_chat_controls")
+        self.status.text = (
+            "Discussion resumed." if enabled else
+            "Discussion stopped. Press Resume Discussion to allow new requests."
+        )
+
+    def _open_attachment_menu(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        popup = Popup(title="ATTACH FILE / MEDIA", content=content, size_hint=(0.88, 0.34))
+        for label, callback in (
+            (self._t(8), self._attach_file),
+            (self._t(9), self._open_live_media_placeholder),
+        ):
+            button = Button(
+                text=label, size_hint_y=None, height=52, font_size="14sp",
+                background_normal="", background_down="",
+                background_color=(0.10, 0.20, 0.36, 1), color=(0.93, 0.96, 1, 1),
+            )
+            button.bind(on_release=lambda _button, action=callback: (popup.dismiss(), action()))
+            content.add_widget(button)
+        close = Button(text="CLOSE", size_hint_y=None, height=42)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+        self._append_report("attachment_menu_opened")
+
     def _apply_language(self) -> None:
         self.title_label.text = self._t(0)
         self.remote_participant_button.text = self._t(12) if hasattr(self, "remote_participant_button") else self._t(12)
@@ -216,8 +296,12 @@ class YJ64BaseApp(App):
             button.text = self._participant_label(name)
         self.chat_input.hint_text = self._t(3)
         self.chat_send_button.text = self._t(4)
+        if hasattr(self, "attach_menu_button"):
+            self.attach_menu_button.text = "+"
         for key, button in getattr(self, "action_buttons", []):
             button.text = self._t(key)
+        if hasattr(self, "stop_discussion_button"):
+            self._refresh_discussion_button()
 
     def _participant_label(self, participant_name: str) -> str:
         index = int(participant_name.rsplit(" ", 1)[-1]) - 1
