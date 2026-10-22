@@ -65,6 +65,9 @@ class YJ64BaseApp(App):
         self.critique_mode = False
         self.consensus_reached = False
         self.consensus_summary = ""
+        self.dialogue_round_limit = 3
+        self.dialogue_stop_event = None
+        self.dialogue_worker_active = False
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
 
@@ -106,7 +109,7 @@ class YJ64BaseApp(App):
             background_color=(0.72, 0.19, 0.22, 1),
             color=(1, 1, 1, 1),
         )
-        self.stop_discussion_button.bind(on_release=self._toggle_main_discussion)
+        self.stop_discussion_button.bind(on_release=self._open_discussion_menu)
         root.add_widget(self.stop_discussion_button)
 
         action_grid = GridLayout(cols=3, spacing=6, size_hint_y=None, row_default_height=48, row_force_default=True)
@@ -129,10 +132,18 @@ class YJ64BaseApp(App):
                 self.implementation_button.disabled = True
         root.add_widget(action_grid)
 
-        self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=23, color=(0.61,0.76,0.96,1), bold=True, halign="left", valign="middle", font_size="12sp")
+        self.chat_nav_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=36)
+        self.chat_top_button = Button(text="↑ TOP", size_hint_x=0.5, size_hint_y=None, height=34, font_size="11sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_bottom_button = Button(text="↓ BOTTOM", size_hint_x=0.5, size_hint_y=None, height=34, font_size="11sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_top_button.bind(on_release=lambda *_: setattr(self.chat_scroll, "scroll_y", 1))
+        self.chat_bottom_button.bind(on_release=lambda *_: setattr(self.chat_scroll, "scroll_y", 0))
+        self.chat_nav_row.add_widget(self.chat_top_button)
+        self.chat_nav_row.add_widget(self.chat_bottom_button)
+        root.add_widget(self.chat_nav_row)
+        self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=27, color=(0.61,0.76,0.96,1), bold=True, halign="left", valign="middle", font_size="12sp")
         root.add_widget(self.chat_heading)
         chat_area = BoxLayout(orientation="horizontal", spacing=6)
-        self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=4, scroll_type=["bars","content"], bar_color=(0.28,0.53,0.85,0.9), bar_inactive_color=(0.28,0.53,0.85,0.25))
+        self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=8, scroll_type=["bars","content"], bar_color=(0.36,0.66,1,1), bar_inactive_color=(0.28,0.53,0.85,0.45))
         self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(150,Window.height*0.45), padding=(10,10), font_size="14sp", background_normal="", background_active="", background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1), cursor_color=(0.91,0.95,1,1))
         self.chat_output.bind(text=self._resize_chat_output)
         self.chat_scroll.add_widget(self.chat_output)
@@ -156,8 +167,7 @@ class YJ64BaseApp(App):
         root.add_widget(chat_area)
 
         self.chat_send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=44)
-        self.chat_send_row.add_widget(Label(text="", size_hint_x=1))
-        self.chat_send_button = Button(text=self._t(4), size_hint_x=None, width=112, size_hint_y=None, height=42, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="13sp", bold=True)
+        self.chat_send_button = Button(text=self._t(4), size_hint_x=1, size_hint_y=None, height=42, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="13sp", bold=True)
         self.chat_send_button.bind(on_release=self._send_llm_chat)
         self.chat_send_row.add_widget(self.chat_send_button)
         root.add_widget(self.chat_send_row)
@@ -255,16 +265,36 @@ class YJ64BaseApp(App):
             (0.72, 0.19, 0.22, 1) if enabled else (0.12, 0.48, 0.29, 1)
         )
 
+    def _open_discussion_menu(self, *_: Any) -> None:
+        content = BoxLayout(orientation="vertical", spacing=7, padding=10)
+        popup = Popup(title="DIALOGUE CONTROL", content=content, size_hint=(0.88, 0.66))
+        for label, rounds in [("1 round",1),("2 rounds",2),("3 rounds (default)",3),("5 rounds",5),("10 rounds",10),("Unlimited — until stopped",0)]:
+            button = Button(text=("✓ " if self.dialogue_round_limit == rounds else "") + label, size_hint_y=None, height=43)
+            button.bind(on_release=lambda _button, value=rounds: self._set_dialogue_rounds(value, popup))
+            content.add_widget(button)
+        toggle = Button(text=("STOP" if self.message_distributor.dialogue_enabled else "RESUME") + " DISCUSSION", size_hint_y=None, height=46)
+        toggle.bind(on_release=lambda *_: (popup.dismiss(), self._toggle_main_discussion()))
+        content.add_widget(toggle)
+        close = Button(text="CLOSE", size_hint_y=None, height=38)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+        self._append_report("dialogue_control_menu_opened", round_limit=self.dialogue_round_limit)
+
+    def _set_dialogue_rounds(self, rounds: int, popup: Popup) -> None:
+        self.dialogue_round_limit = max(0, int(rounds))
+        self._append_report("dialogue_round_limit_changed", round_limit=self.dialogue_round_limit, unlimited=rounds == 0)
+        self.status.text = "Dialogue rounds: unlimited" if rounds == 0 else f"Dialogue rounds set to {rounds}."
+        popup.dismiss()
+
     def _toggle_main_discussion(self, *_: Any) -> None:
         enabled = not self.message_distributor.dialogue_enabled
+        if not enabled and self.dialogue_stop_event is not None:
+            self.dialogue_stop_event.set()
         self.message_distributor.set_dialogue_enabled(enabled)
         self._refresh_discussion_button()
-        event = "main_discussion_resumed" if enabled else "main_discussion_stopped"
-        self._append_report(event, source="main_chat_controls")
-        self.status.text = (
-            "Discussion resumed." if enabled else
-            "Discussion stopped. Press Resume Discussion to allow new requests."
-        )
+        self._append_report("main_discussion_resumed" if enabled else "main_discussion_stopped", source="main_chat_controls", active_cycle_cancel_requested=not enabled)
+        self.status.text = "Discussion resumed." if enabled else "Stopping after the in-flight model request returns."
 
     def _open_attachment_menu(self, *_: Any) -> None:
         content = BoxLayout(orientation="vertical", spacing=8, padding=12)
@@ -348,11 +378,16 @@ class YJ64BaseApp(App):
         popup.open()
 
     def _resize_chat_output(self, *_: Any) -> None:
-        if not hasattr(self,"chat_output") or not hasattr(self,"chat_scroll"):
+        if not hasattr(self, "chat_output") or not hasattr(self, "chat_scroll"):
             return
-        lines = max(1,len(self.chat_output.text.splitlines()))
-        self.chat_output.height = max(self.chat_scroll.height,lines*21+30)
-        Clock.schedule_once(lambda *_:setattr(self.chat_scroll,"scroll_y",0),0)
+        was_at_bottom = self.chat_scroll.scroll_y <= 0.03
+        lines = max(1, len(self.chat_output.text.splitlines()))
+        self.chat_output.height = max(self.chat_scroll.height, lines * 21 + 30)
+        if was_at_bottom:
+            Clock.schedule_once(lambda *_: setattr(self.chat_scroll, "scroll_y", 0), 0)
+
+    def _append_chat_text(self, text: str) -> None:
+        self.chat_output.text = (self.chat_output.text + "\n\n" + text).strip()
 
     def _resize_chat_input(self, *_: Any) -> None:
         if not hasattr(self,"chat_input"):
@@ -1653,254 +1688,85 @@ class YJ64BaseApp(App):
 
     def _send_llm_chat(self, *_: Any) -> None:
         prompt = self.chat_input.text.strip()
-        if not prompt:
-            return
+        if not prompt: return
         if not self.message_distributor.dialogue_enabled:
-            self._append_report(
-                "llm_chat_send_rejected",
-                reason="dialogue_stopped",
-                prompt=prompt,
-            )
+            self._append_report("llm_chat_send_rejected", reason="dialogue_stopped", prompt=prompt)
             self.status.text = "Dialogue is stopped. Resume it before sending new LLM requests."
             return
-
+        if self.dialogue_worker_active:
+            self.status.text = "A dialogue is already running. Stop it before starting another."
+            return
         target_details = self._chat_target_details()
         participants = list(target_details["connected_participants"])
-        if not participants and target_details["owner_connected"]:
-            participants = ["Owner"]
+        if not participants and target_details["owner_connected"]: participants = ["Owner"]
         if not participants:
-            self._append_report(
-                "llm_chat_send_rejected",
-                reason="no_configured_connections",
-                prompt=prompt,
-            )
-            self.chat_output.text += (
-                f"\n\nUser: {prompt}\nNo configured participant connections are available."
-            )
+            self._append_report("llm_chat_send_rejected", reason="no_configured_connections", prompt=prompt)
+            self._append_chat_text(f"Owner: {prompt}\nNo configured participant connections are available.")
             self.status.text = "No configured participant connections are available."
             self.chat_input.text = ""
             return
-
         implementation_request = prompt.startswith("IMPLEMENTATION PHASE.")
-        request_prompt = self._practical_instructions(
-            prompt,
-            implementation=implementation_request,
-        )
-        request_history = list(self.common_history) + [
-            {"role": "user", "content": request_prompt}
-        ]
+        request_prompt = self._practical_instructions(prompt, implementation=implementation_request)
         targets = []
         for name in participants:
             details = self._participant_config_status(name)
-            targets.append({
-                "participant": name,
-                "route_id": str(details["route_id"]),
-                "mode": str(details["mode"]),
-                "provider": str(details["provider"]),
-                "model": str(details["model"]),
-            })
-        self._append_report(
-            "llm_chat_broadcast_started",
-            prompt=prompt,
-            participants=[item["participant"] for item in targets],
-            route_ids={item["participant"]: item["route_id"] for item in targets},
-            history_count=len(request_history),
-        )
-        for target in targets:
-            self._append_report(
-                "llm_chat_send_started",
-                prompt=prompt,
-                participant=target["participant"],
-                route_id=target["route_id"],
-                mode=target["mode"],
-                history_count=len(request_history),
-                broadcast=True,
-            )
-        self.status.text = (
-            "Sending common-chat message to: "
-            + ", ".join(item["participant"] for item in targets)
-        )
+            targets.append({"participant":name,"route_id":str(details["route_id"]),"mode":str(details["mode"]),"provider":str(details["provider"]),"model":str(details["model"])})
+        round_limit = self.dialogue_round_limit
+        from threading import Event, Thread
+        stop_event = Event()
+        self.dialogue_stop_event = stop_event
+        self.dialogue_worker_active = True
         self.chat_input.text = ""
-        self.chat_output.text += (
-            f"\n\nOwner: {prompt}\n"
-            + "\n".join(f"{item['participant']}: waiting for response..." for item in targets)
-        )
-
-        def run_participant(target: dict[str, str]) -> dict[str, Any]:
-            participant_name = target["participant"]
-            try:
-                result = self.message_distributor.dispatch_message(
-                    self.user_data_dir,
-                    participant_name,
-                    request_prompt,
-                    mode=target["mode"],
-                    history=request_history,
-                    report=lambda event, _participant=participant_name, **data:
-                    self._append_report(
-                        "llm_chat_" + event,
-                        **{"participant": _participant, "broadcast": True, **data},
-                    ),
-                )
-                return {
-                    "participant": participant_name,
-                    "route_id": result.get("route_id", target["route_id"]),
-                    "mode": target["mode"],
-                    "provider": result["provider"],
-                    "model": result["model"],
-                    "response": result["response"],
-                    "ok": True,
-                }
-            except Exception as exc:
-                return {
-                    "participant": participant_name,
-                    "route_id": target["route_id"],
-                    "mode": target["mode"],
-                    "ok": False,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                }
-
+        self.common_history.append({"role":"user","content":prompt})
+        self._save_common_history()
+        self.chat_output.text = self._render_history()
+        self._append_report("llm_chat_dialogue_started", prompt=prompt, participants=participants, round_limit=round_limit, unlimited=round_limit == 0, history_count=len(self.common_history))
+        self.status.text = "Sequential dialogue started: " + ", ".join(participants)
         def run_chat() -> None:
-            from concurrent.futures import ThreadPoolExecutor
-
-            outcomes: dict[str, dict[str, Any]] = {}
-            with ThreadPoolExecutor(
-                max_workers=len(targets),
-                thread_name_prefix="yj64-common-chat",
-            ) as executor:
-                futures = {
-                    target["participant"]: executor.submit(run_participant, target)
-                    for target in targets
-                }
-                for target in targets:
-                    outcomes[target["participant"]] = futures[target["participant"]].result()
-
-            def finish(*_args: Any) -> None:
-                lines = [f"Owner: {prompt}"]
-                successful = 0
-                history_additions: list[dict[str, str]] = [
-                    {"role": "user", "content": prompt}
-                ]
-                for target in targets:
-                    outcome = outcomes[target["participant"]]
-                    participant_name = outcome["participant"]
-                    self.participant_live_status[participant_name] = bool(outcome["ok"])
-                    if outcome["ok"]:
-                        successful += 1
-                        response = str(outcome["response"])
-                        lines.append(
-                            f"{participant_name} ({outcome['provider']} / {outcome['model']}):\n{response}"
-                        )
-                        self._append_report(
-                            "llm_chat_send_succeeded",
-                            participant=participant_name,
-                            route_id=outcome["route_id"],
-                            mode=outcome["mode"],
-                            provider=outcome["provider"],
-                            model=outcome["model"],
-                            prompt=prompt,
-                            response=response,
-                            broadcast=True,
-                        )
-                        history_additions.append({
-                            "role": "assistant",
-                            "content": f"{participant_name}: {response}",
-                        })
-                    else:
-                        error_text = (
-                            f"{outcome['error_type']}: {outcome['error']}"
-                        )
-                        lines.append(f"{participant_name} FAILED:\n{error_text}")
-                        self._append_report(
-                            "llm_chat_send_failed",
-                            participant=participant_name,
-                            route_id=outcome["route_id"],
-                            mode=outcome["mode"],
-                            prompt=prompt,
-                            error_type=outcome["error_type"],
-                            error=outcome["error"],
-                            broadcast=True,
-                        )
-                self.common_history.extend(history_additions)
-                self._save_common_history()
-                if self.practical_mode and not implementation_request:
-                    votes = {
-                        name: (
-                            "APPROVE"
-                            if "[CONSENSUS: APPROVE]" in str(outcomes[name].get("response", ""))
-                            and "[CONSENSUS: OBJECT]" not in str(outcomes[name].get("response", ""))
-                            else "OBJECT"
-                            if "[CONSENSUS: OBJECT]" in str(outcomes[name].get("response", ""))
-                            else "NO_VOTE"
-                        )
-                        for name in outcomes
-                        if outcomes[name].get("ok")
-                    }
-                    all_connected_approved = (
-                        len(targets) >= 2
-                        and len(votes) == len(targets)
-                        and all(vote == "APPROVE" for vote in votes.values())
-                    )
-                    self.consensus_reached = all_connected_approved
-                    self.consensus_summary = (
-                        ", ".join(f"{name}={vote}" for name, vote in votes.items())
-                        if votes else "No successful model responses"
-                    )
-                    self.implementation_button.disabled = not self.consensus_reached
-                    self.implementation_button.text = (
-                        "НАЧАТЬ РЕАЛИЗАЦИЮ ЧЕРЕЗ ПОДКЛЮЧЁННЫХ АГЕНТОВ"
-                        if self.consensus_reached
-                        else "РЕАЛИЗАЦИЯ ЗАКРЫТА — НЕТ ПОЛНОГО КОНСЕНСУСА"
-                    )
-                    self._append_report(
-                        "practical_consensus_evaluated",
-                        reached=self.consensus_reached,
-                        votes=votes,
-                        summary=self.consensus_summary,
-                        connected_participants=[item["participant"] for item in targets],
-                        rule="every connected participant must return [CONSENSUS: APPROVE] in this response round",
-                    )
-                    self.status.text = (
-                        "Consensus reached. Implementation draft can be requested."
-                        if self.consensus_reached
-                        else "Practical mode: consensus not reached. Review model votes and continue discussion."
-                    )
-                elif implementation_request:
-                    self._append_report(
-                        "agent_implementation_draft_completed",
-                        participants=[item["participant"] for item in targets],
-                        successful=sum(1 for item in outcomes.values() if item.get("ok")),
-                        note="LLM-generated draft only; no repository write or code execution occurred.",
-                    )
-                self._append_report(
-                    "llm_chat_broadcast_completed",
-                    prompt=prompt,
-                    participants=[item["participant"] for item in targets],
-                    successful=successful,
-                    failed=len(targets) - successful,
-                )
-                self.chat_output.text += "\n\n" + "\n\n".join(lines[1:])
-                self._save_common_history()
-                if self.practical_mode and not implementation_request:
-                    self.status.text = (
-                        "Consensus reached. Implementation draft is unlocked."
-                        if self.consensus_reached
-                        else "Practical mode: consensus not reached; review votes and continue discussion."
-                    )
-                elif implementation_request:
-                    self.status.text = (
-                        f"Implementation drafts returned by {successful}/{len(targets)} connected LLMs. "
-                        "No repository files were changed by this action."
-                    )
-                else:
-                    self.status.text = (
-                        f"Common chat completed: {successful}/{len(targets)} participants answered."
-                    )
-
-            Clock.schedule_once(finish, 0)
-
-        from threading import Thread
-        Thread(target=run_chat, name="yj64-llm-chat-broadcast", daemon=True).start()
+            successful = failed = rounds_completed = 0
+            try:
+                round_number = 0
+                while not stop_event.is_set() and self.message_distributor.dialogue_enabled:
+                    round_number += 1
+                    if round_limit and round_number > round_limit: break
+                    rounds_completed = round_number
+                    self._append_report("llm_chat_round_started", round_number=round_number, history_count=len(self.common_history))
+                    for target in targets:
+                        if stop_event.is_set() or not self.message_distributor.dialogue_enabled: break
+                        name = target["participant"]
+                        turn_prompt = request_prompt if round_number == 1 else "Continue the common dialogue. Consider the owner's original request and all previous participants' replies in the conversation history. Add your next contribution without repeating the entire conversation."
+                        history_snapshot = [dict(item) for item in self.common_history]
+                        self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot))
+                        try:
+                            result = self.message_distributor.dispatch_message(self.user_data_dir, name, turn_prompt, mode=target["mode"], history=history_snapshot, report=lambda event, _p=name, _r=round_number, **data: self._append_report("llm_chat_"+event, **{"participant":_p,"round_number":_r,**data}))
+                            response = str(result["response"])
+                            self.common_history.append({"role":"assistant","content":f"{name}: {response}"})
+                            self._save_common_history()
+                            successful += 1
+                            self.participant_live_status[name] = True
+                            self._append_report("llm_chat_participant_turn_completed", participant=name, round_number=round_number, route_id=result.get("route_id",target["route_id"]), provider=result.get("provider",target["provider"]), model=result.get("model",target["model"]), response=response, history_count=len(self.common_history))
+                            Clock.schedule_once(lambda _dt, speaker=name, body=response, rn=round_number: self._append_chat_text(f"{speaker} — round {rn}:\n{body}"),0)
+                        except Exception as exc:
+                            failed += 1
+                            self.participant_live_status[name] = False
+                            err=f"{type(exc).__name__}: {exc}"
+                            self.common_history.append({"role":"assistant","content":f"{name} ERROR: {err}"})
+                            self._save_common_history()
+                            self._append_report("llm_chat_participant_turn_failed",participant=name,round_number=round_number,route_id=target["route_id"],error_type=type(exc).__name__,error=str(exc))
+                            Clock.schedule_once(lambda _dt,speaker=name,body=err,rn=round_number: self._append_chat_text(f"{speaker} — round {rn} FAILED:\n{body}"),0)
+                    self._append_report("llm_chat_round_completed",round_number=round_number,successful=successful,failed=failed,stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled)
+                    if stop_event.is_set() or not self.message_distributor.dialogue_enabled: break
+            finally:
+                def finish(*_args: Any) -> None:
+                    self.dialogue_worker_active=False
+                    self.dialogue_stop_event=None
+                    self._save_common_history()
+                    self.chat_output.text=self._render_history()
+                    stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled
+                    self._append_report("llm_chat_dialogue_completed",rounds_completed=rounds_completed,successful_turns=successful,failed_turns=failed,stopped=stopped,round_limit=round_limit)
+                    self.status.text=f"Dialogue {'stopped' if stopped else 'completed'} after {rounds_completed} round(s): {successful} replies, {failed} errors."
+                Clock.schedule_once(finish,0)
+        Thread(target=run_chat,name="yj64-sequential-dialogue",daemon=True).start()
 
     def _copy_to_clipboard(self, text: str) -> None:
         try:
