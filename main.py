@@ -1743,7 +1743,7 @@ class YJ64BaseApp(App):
                             if history_snapshot and str(history_snapshot[-1].get("role") or "").lower() == "user":
                                 last_content = str(history_snapshot[-1].get("content") or "")
                                 if last_content != turn_prompt:
-                                    history_snapshot[-1]["content"] = (last_content + "\\n\\n" + turn_prompt).strip()
+                                    history_snapshot[-1]["content"] = (last_content + "\n\n" + turn_prompt).strip()
                             else:
                                 history_snapshot.append({"role": "user", "content": turn_prompt})
                         self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
