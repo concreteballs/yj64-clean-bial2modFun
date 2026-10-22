@@ -1736,7 +1736,17 @@ class YJ64BaseApp(App):
                         name = target["participant"]
                         turn_prompt = request_prompt if round_number == 1 else "Continue the common dialogue. Consider the owner's original request and all previous participants' replies in the conversation history. Add your next contribution without repeating the entire conversation."
                         history_snapshot = [dict(item) for item in self.common_history]
-                        self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot))
+                        # Mistral Agent/Conversations requires the final input item to be a user message.
+                        # The shared transcript often ends with the previous participant's assistant reply;
+                        # add this participant's continuation prompt to a per-request copy only.
+                        if target["mode"] == "agent":
+                            if history_snapshot and str(history_snapshot[-1].get("role") or "").lower() == "user":
+                                last_content = str(history_snapshot[-1].get("content") or "")
+                                if last_content != turn_prompt:
+                                    history_snapshot[-1]["content"] = (last_content + "\\n\\n" + turn_prompt).strip()
+                            else:
+                                history_snapshot.append({"role": "user", "content": turn_prompt})
+                        self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
                         try:
                             result = self.message_distributor.dispatch_message(self.user_data_dir, name, turn_prompt, mode=target["mode"], history=history_snapshot, report=lambda event, _p=name, _r=round_number, **data: self._append_report("llm_chat_"+event, **{"participant":_p,"round_number":_r,**data}))
                             response = str(result["response"])
