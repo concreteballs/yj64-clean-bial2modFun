@@ -1787,7 +1787,7 @@ class YJ64BaseApp(App):
                             if history_snapshot and str(history_snapshot[-1].get("role") or "").lower() == "user":
                                 last_content = str(history_snapshot[-1].get("content") or "")
                                 if last_content != turn_prompt:
-                                    history_snapshot[-1]["content"] = (last_content + "\\n\\n" + turn_prompt).strip()
+                                    history_snapshot[-1]["content"] = (last_content + "\n\n" + turn_prompt).strip()
                             else:
                                 history_snapshot.append({"role": "user", "content": turn_prompt})
                         self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
@@ -3773,7 +3773,7 @@ END ALLOWED
 
 
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=665640689975e16a733922bda1c23cffc110615b
+EXPECTED-GIT-BLOB-SHA:main.py=9a47a8305ce1a0f867e1a66e9dbee06e447346d5
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
