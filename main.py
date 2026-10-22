@@ -150,7 +150,7 @@ class YJ64BaseApp(App):
             background_color=(0.72, 0.19, 0.22, 1),
             color=(1, 1, 1, 1),
         )
-                root.add_widget(self.stop_discussion_button)
+        root.add_widget(self.stop_discussion_button)
 
         action_grid = GridLayout(cols=3, spacing=6, size_hint_y=None, row_default_height=48, row_force_default=True)
         action_grid.bind(minimum_height=action_grid.setter("height"))

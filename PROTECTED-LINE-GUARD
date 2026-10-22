@@ -194,7 +194,7 @@ class YJ64BaseApp(App):
             background_color=(0.72, 0.19, 0.22, 1),
             color=(1, 1, 1, 1),
         )
-                root.add_widget(self.stop_discussion_button)
+        root.add_widget(self.stop_discussion_button)
 
         action_grid = GridLayout(cols=3, spacing=6, size_hint_y=None, row_default_height=48, row_force_default=True)
         action_grid.bind(minimum_height=action_grid.setter("height"))
@@ -3829,7 +3829,7 @@ END ALLOWED
 
 
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=ad2991ffdb5ebfe05bd46259b52b2850069d0d3c
+EXPECTED-GIT-BLOB-SHA:main.py=5776f68fd255e268a8e7c55b9c759d84d9f129f4
 EXPECTED-GIT-BLOB-SHA:llm_api.py=220d76677ea7e3435eae7d31dbba6e3b1a7394fb
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
