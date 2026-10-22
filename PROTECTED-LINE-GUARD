@@ -3786,3 +3786,5 @@ EXPECTED-GIT-BLOB-SHA:chat_workspace.py=7612d2ecccba37146a3aeb4db620a00732aaffe4
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=5ed2efe87e5f362b7097745d0c76e0adffb3836e
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
 EXPECTED-GIT-BLOB-SHA:chatgpt_bridge.py=ffb962f4e37dd37f472a6ec85c8932a1de0051ea
+
+BUILD-TRIGGER-NOTE: Re-run Android APK workflow after synchronizing the exact Guard fragment and expected file hashes.
