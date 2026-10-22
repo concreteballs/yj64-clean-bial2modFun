@@ -392,8 +392,15 @@ class YJ64BaseApp(App):
     def _render_history(self) -> str:
         rendered = []
         for item in self.common_history:
-            role = "Owner" if item.get("role") == "user" else "YJ-64"
-            rendered.append(f"{role}:\n{item.get('content', '')}")
+            content = str(item.get("content", ""))
+            if item.get("role") == "user":
+                role = "Owner"
+                body = content
+            elif ": " in content and content.split(": ", 1)[0] in {"Participant 1", "Participant 2", "Participant 3", "Owner"}:
+                role, body = content.split(": ", 1)
+            else:
+                role, body = "YJ-64", content
+            rendered.append(f"{role}:\n{body}")
         return "\n\n".join(rendered) or "New chat. Write a message below."
 
     def _save_common_history(self) -> None:
