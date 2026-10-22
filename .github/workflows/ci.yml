@@ -13,6 +13,7 @@ on:
       - '.github/workflows/ci.yml'
       - '.github/workflows/android-apk.yml'
       - 'tools/verify_guard.py'
+      - 'remote_participant_server.py'
   pull_request:
     branches: ['main']
     paths:
@@ -25,6 +26,7 @@ on:
       - '.github/workflows/ci.yml'
       - '.github/workflows/android-apk.yml'
       - 'tools/verify_guard.py'
+      - 'remote_participant_server.py'
   workflow_dispatch:
 
 permissions:
@@ -41,4 +43,4 @@ jobs:
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
         run: |
-          python3 -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py tools/verify_guard.py
+          python3 -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py tools/verify_guard.py
