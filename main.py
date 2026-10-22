@@ -135,17 +135,17 @@ Window.clearcolor = (0.91, 0.95, 0.99, 1)
 
 UI_LANGUAGES = [("ru","Русский"),("en","English"),("es","Español"),("zh","简体中文"),("hi","हिन्दी"),("ar","العربية"),("fr","Français"),("pt","Português"),("de","Deutsch"),("ja","日本語"),("ko","한국어"),("it","Italiano"),("tr","Türkçe"),("id","Bahasa Indonesia")]
 UI_TEXT = {
-"ru":["YJ-64","Общий чат","Участники","Напишите сообщение…","ОТПРАВИТЬ","Инструменты / монитор","Чаты","Новый чат","Прикрепить файл","Камера / медиа","Критика проекта: выкл.","Файл навыков","Удалённый участник","Практический режим: выкл.","Начать реализацию"],
-"en":["YJ-64","Common chat","Participants","Write a message…","SEND","Tools / monitor","Chats","New chat","Attach file","Camera / media","Project critique: off","Skills file","Remote participant","Practical mode: off","Start implementation"],
-"es":["YJ-64","Chat común","Participantes","Escribe un mensaje…","ENVIAR","Herramientas / monitor","Chats","Nuevo chat","Adjuntar archivo","Cámara / medios","Crítica: desactivada","Archivo de habilidades","Participante remoto","Modo práctico: desactivado","Iniciar implementación"],
-"zh":["YJ-64","公共聊天","参与者","输入消息…","发送","工具 / 监控","聊天","新建聊天","添加文件","相机 / 媒体","项目批判：关闭","技能文件","远程参与者","实践模式：关闭","开始实施"],
-"hi":["YJ-64","सामान्य चैट","प्रतिभागी","संदेश लिखें…","भेजें","टूल / मॉनिटर","चैट","नई चैट","फ़ाइल जोड़ें","कैमरा / मीडिया","आलोचना: बंद","स्किल फ़ाइल","रिमोट प्रतिभागी","प्रैक्टिकल मोड: बंद","कार्यान्वयन शुरू करें"],
-"ar":["YJ-64","دردشة مشتركة","المشاركون","اكتب رسالة…","إرسال","الأدوات / المراقبة","الدردشات","دردشة جديدة","إرفاق ملف","الكاميرا / الوسائط","النقد: إيقاف","ملف المهارات","مشارك عن بُعد","الوضع العملي: إيقاف","بدء التنفيذ"],
-"fr":["YJ-64","Chat commun","Participants","Écrire un message…","ENVOYER","Outils / moniteur","Chats","Nouveau chat","Joindre un fichier","Caméra / médias","Critique : désactivée","Fichier de compétences","Participant distant","Mode pratique : désactivé","Démarrer l’implémentation"],
-"pt":["YJ-64","Chat comum","Participantes","Escreva uma mensagem…","ENVIAR","Ferramentas / monitor","Chats","Novo chat","Anexar arquivo","Câmara / mídia","Crítica: desligada","Arquivo de competências","Participante remoto","Modo prático: desligado","Iniciar implementação"],
-"de":["YJ-64","Gemeinsamer Chat","Teilnehmer","Nachricht schreiben…","SENDEN","Werkzeuge / Monitor","Chats","Neuer Chat","Datei anhängen","Kamera / Medien","Kritik: aus","Skill-Datei","Remote-Teilnehmer","Praxismodus: aus","Umsetzung starten"],
-"ja":["YJ-64","共通チャット","参加者","メッセージを入力…","送信","ツール / モニター","チャット","新しいチャット","ファイルを添付","カメラ / メディア","批評：オフ","スキルファイル","リモート参加者","実践モード：オフ","実装を開始"],
-"ko":["YJ-64","공용 채팅","참여자","메시지 입력…","전송","도구 / 모니터","채팅","새 채팅","파일 첨부","카메라 / 미디어","비평: 꺼짐","스킬 파일","원격 참여자","실행 모드: 꺼짐","구현 시작"],
+"ru":["YJ-64","Общий чат","Участники","Напишите сообщение…","ОТПРАВИТЬ","Инструменты / монитор","Чаты","Новый чат","Прикрепить файл","Камера / медиа","Критика проекта: выкл.","Файл навыков","Удалённый участник","Практический режим: выкл.","Коммерческий агент"],
+"en":["YJ-64","Common chat","Participants","Write a message…","SEND","Tools / monitor","Chats","New chat","Attach file","Camera / media","Project critique: off","Skills file","Remote participant","Practical mode: off","Commercial agent"],
+"es":["YJ-64","Chat común","Participantes","Escribe un mensaje…","ENVIAR","Herramientas / monitor","Chats","Nuevo chat","Adjuntar archivo","Cámara / medios","Crítica: desactivada","Archivo de habilidades","Participante remoto","Modo práctico: desactivado","Agente comercial"],
+"zh":["YJ-64","公共聊天","参与者","输入消息…","发送","工具 / 监控","聊天","新建聊天","添加文件","相机 / 媒体","项目批判：关闭","技能文件","远程参与者","实践模式：关闭","商业研究代理"],
+"hi":["YJ-64","सामान्य चैट","प्रतिभागी","संदेश लिखें…","भेजें","टूल / मॉनिटर","चैट","नई चैट","फ़ाइल जोड़ें","कैमरा / मीडिया","आलोचना: बंद","स्किल फ़ाइल","रिमोट प्रतिभागी","प्रैक्टिकल मोड: बंद","वाणिज्यिक एजेंट"],
+"ar":["YJ-64","دردشة مشتركة","المشاركون","اكتب رسالة…","إرسال","الأدوات / المراقبة","الدردشات","دردشة جديدة","إرفاق ملف","الكاميرا / الوسائط","النقد: إيقاف","ملف المهارات","مشارك عن بُعد","الوضع العملي: إيقاف","الوكيل التجاري"],
+"fr":["YJ-64","Chat commun","Participants","Écrire un message…","ENVOYER","Outils / moniteur","Chats","Nouveau chat","Joindre un fichier","Caméra / médias","Critique : désactivée","Fichier de compétences","Participant distant","Mode pratique : désactivé","Agent commercial"],
+"pt":["YJ-64","Chat comum","Participantes","Escreva uma mensagem…","ENVIAR","Ferramentas / monitor","Chats","Novo chat","Anexar arquivo","Câmara / mídia","Crítica: desligada","Arquivo de competências","Participante remoto","Modo prático: desligado","Agente comercial"],
+"de":["YJ-64","Gemeinsamer Chat","Teilnehmer","Nachricht schreiben…","SENDEN","Werkzeuge / Monitor","Chats","Neuer Chat","Datei anhängen","Kamera / Medien","Kritik: aus","Skill-Datei","Remote-Teilnehmer","Praxismodus: aus","Kommerz-Agent"],
+"ja":["YJ-64","共通チャット","参加者","メッセージを入力…","送信","ツール / モニター","チャット","新しいチャット","ファイルを添付","カメラ / メディア","批評：オフ","スキルファイル","リモート参加者","実践モード：オフ","商用エージェント"],
+"ko":["YJ-64","공용 채팅","참여자","메시지 입력…","전송","도구 / 모니터","채팅","새 채팅","파일 첨부","카메라 / 미디어","비평: 꺼짐","스킬 파일","원격 참여자","실행 모드: 꺼짐","상업 에이전트"],
 "it":["YJ-64","Chat comune","Partecipanti","Scrivi un messaggio…","INVIA","Strumenti / monitor","Chat","Nuova chat","Allega file","Fotocamera / media","Critica: disattivata","File competenze","Partecipante remoto","Modalità pratica: disattivata","Avvia implementazione"],
 "tr":["YJ-64","Ortak sohbet","Katılımcılar","Mesaj yazın…","GÖNDER","Araçlar / monitör","Sohbetler","Yeni sohbet","Dosya ekle","Kamera / medya","Eleştiri: kapalı","Beceri dosyası","Uzak katılımcı","Pratik mod: kapalı","Uygulamayı başlat"],
 "id":["YJ-64","Obrolan bersama","Peserta","Tulis pesan…","KIRIM","Alat / monitor","Obrolan","Obrolan baru","Lampirkan file","Kamera / media","Kritik: nonaktif","File keterampilan","Peserta jarak jauh","Mode praktik: nonaktif","Mulai implementasi"],
@@ -255,6 +255,7 @@ class YJ64BaseApp(App):
         chat_area = BoxLayout(orientation="horizontal", spacing=6)
         self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=8, scroll_type=["bars","content"], bar_color=(0.36,0.66,1,1), bar_inactive_color=(0.28,0.53,0.85,0.45))
         self.chat_output = ChatTranscript(size_hint_y=None, height=max(150,Window.height*0.45))
+        self.chat_output.text = self._render_history()
         self.chat_scroll.add_widget(self.chat_output)
         chat_area.add_widget(self.chat_scroll)
 
