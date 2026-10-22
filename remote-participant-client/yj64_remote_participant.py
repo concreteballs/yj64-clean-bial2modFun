@@ -126,27 +126,28 @@ async def run_client(url: str, name: str, token: str) -> int:
             async def receive_one() -> dict[str, Any]:
                 return decode_packet(await ws.recv())
 
+            # Keep one pending console read. Cancelling asyncio.to_thread(input)
+            # does not stop the underlying OS thread and can create competing readers.
+            input_task = asyncio.create_task(asyncio.to_thread(input, "> "))
             while True:
                 recv_task = asyncio.create_task(receive_one())
-                input_task = asyncio.create_task(asyncio.to_thread(input, "> "))
-                done, pending = await asyncio.wait(
+                done, _ = await asyncio.wait(
                     {recv_task, input_task}, return_when=asyncio.FIRST_COMPLETED
                 )
                 if recv_task in done:
-                    input_task.cancel()
-                    try:
-                        await input_task
-                    except (asyncio.CancelledError, EOFError):
-                        pass
                     try:
                         incoming = recv_task.result()
                     except Exception as exc:
-                        print(f"\nСоединение завершено: {type(exc).__name__}: {exc}", file=sys.stderr)
+                        input_task.cancel()
+                        print(
+                            f"\nСоединение завершено: {type(exc).__name__}: {exc}",
+                            file=sys.stderr,
+                        )
                         return 1
                     print_packet(incoming)
-                    if incoming.get("kind") == "error":
-                        # Keep the session open for recoverable server errors.
-                        continue
+                    if input_task.done():
+                        # Process the already-entered line on the next pass.
+                        pass
                     continue
 
                 recv_task.cancel()
@@ -164,14 +165,16 @@ async def run_client(url: str, name: str, token: str) -> int:
                     print("Отключение от YJ-64.")
                     return 0
                 if not outgoing:
+                    input_task = asyncio.create_task(asyncio.to_thread(input, "> "))
                     continue
                 if len(outgoing) > MAX_CHAT_CHARS:
                     print(f"Сообщение слишком длинное: максимум {MAX_CHAT_CHARS} символов.")
-                    continue
-                await ws.send(json.dumps(
-                    {"protocol": PROTOCOL, "kind": "chat_message", "text": outgoing},
-                    ensure_ascii=False,
-                ))
+                else:
+                    await ws.send(json.dumps(
+                        {"protocol": PROTOCOL, "kind": "chat_message", "text": outgoing},
+                        ensure_ascii=False,
+                    ))
+                input_task = asyncio.create_task(asyncio.to_thread(input, "> "))
     except KeyboardInterrupt:
         print("\nОтключение по запросу пользователя.")
         return 130
