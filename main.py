@@ -61,7 +61,7 @@ class ChatTranscript(BoxLayout):
     def _render_messages(self):
         self.clear_widgets()
         parts = self._message_parts()
-        copy_all = FeedbackButton(text="⧉ COPY DISCUSSION FROM LAST OWNER MESSAGE", size_hint_y=None, height=34, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        copy_all = FeedbackButton(text="⧉ КОПИРОВАТЬ ОБСУЖДЕНИЕ С ПОСЛЕДНЕГО СООБЩЕНИЯ ВЛАДЕЛЬЦА", size_hint_y=None, height=34, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
         def copy_discussion(*_):
             start = 0
             for index, (role, _body, _raw) in enumerate(parts):
@@ -73,21 +73,27 @@ class ChatTranscript(BoxLayout):
         for role, body, raw in parts:
             owner = role.lower() in {"owner", "user"}
             participant = role.startswith("Participant")
-            color = (0.10,0.27,0.42,1) if owner else ((0.12,0.31,0.25,1) if participant else (0.15,0.19,0.29,1))
+            right_aligned = owner or role == "Participant 2"
+            colors = {"Participant 1": (0.10,0.31,0.47,1), "Participant 2": (0.32,0.20,0.45,1), "Participant 3": (0.12,0.36,0.28,1)}
+            color = (0.10,0.27,0.42,1) if owner else colors.get(role, (0.15,0.19,0.29,1))
             row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=max(82, min(620, (len(body.splitlines()) + max(1, len(body)//48))*20 + 48)))
-            if not owner:
+            if not right_aligned:
                 row.add_widget(Label(text="", size_hint_x=0.08))
-            bubble = BoxLayout(orientation="vertical", spacing=4, padding=7, size_hint_x=0.92 if owner else 0.84)
-            title = Label(text=("👤 " if owner else ("🤖 " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
+            bubble = BoxLayout(orientation="vertical", spacing=4, padding=7, size_hint_x=0.92 if right_aligned else 0.84)
+            participant_icon = {"Participant 1": "🔵", "Participant 2": "🟣", "Participant 3": "🟢"}.get(role, "🤖")
+            title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
             message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=max(48, min(560, (len(body.splitlines()) + max(1, len(body)//48))*20 + 8)), padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
             bubble.add_widget(message)
-            copy_button = FeedbackButton(text="⧉ COPY ANSWER", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+            copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
             bubble.add_widget(copy_button)
             row.add_widget(bubble)
-            row.add_widget(Label(text="", size_hint_x=0.08))
+            if not right_aligned:
+                row.add_widget(Label(text="", size_hint_x=0.08))
+            else:
+                row.add_widget(Label(text="", size_hint_x=0.08))
             self.add_widget(row)
         self.height = max(150, sum(child.height + self.spacing for child in self.children) + 10)
 
@@ -242,11 +248,17 @@ class YJ64BaseApp(App):
                 self.implementation_button.disabled = not bool(self._chat_target_details()["connected_participants"])
         root.add_widget(action_grid)
 
-        self.chat_nav_row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=32)
-        self.chat_top_button = FeedbackButton(text="↑ ВВЕРХ", size_hint_x=0.5, size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
-        self.chat_bottom_button = FeedbackButton(text="↓ ВНИЗ", size_hint_x=0.5, size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_nav_row = BoxLayout(orientation="horizontal", spacing=4, size_hint_y=None, height=36)
+        self.chats_button = FeedbackButton(text=self._t(6), size_hint_x=0.34, size_hint_y=None, height=34, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.new_chat_button = FeedbackButton(text=self._t(7), size_hint_x=0.34, size_hint_y=None, height=34, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_top_button = FeedbackButton(text="↑", size_hint_x=0.16, size_hint_y=None, height=34, font_size="13sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chat_bottom_button = FeedbackButton(text="↓", size_hint_x=0.16, size_hint_y=None, height=34, font_size="13sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        self.chats_button.bind(on_release=self._show_chats)
+        self.new_chat_button.bind(on_release=self._new_chat)
         self.chat_top_button.bind(on_release=lambda *_: setattr(self.chat_scroll, "scroll_y", 1))
         self.chat_bottom_button.bind(on_release=lambda *_: setattr(self.chat_scroll, "scroll_y", 0))
+        self.chat_nav_row.add_widget(self.chats_button)
+        self.chat_nav_row.add_widget(self.new_chat_button)
         self.chat_nav_row.add_widget(self.chat_top_button)
         self.chat_nav_row.add_widget(self.chat_bottom_button)
         root.add_widget(self.chat_nav_row)
