@@ -689,21 +689,134 @@ class YJ64BaseApp(App):
         self._append_report("live_media_placeholder_opened", capture_started=False, streaming_started=False)
 
     def _open_remote_participant(self, *_: Any) -> None:
-        from remote_participant import get_status
-        state = get_status()
-        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
-        content.add_widget(Label(
-            text="REMOTE PARTICIPANT — PLACEHOLDER ONLY\n\n"
-                 + state.message
-                 + "\n\nNo network connection or remote command is attempted. "
-                   "We will design the administrator's computer module in the next step.",
-        ))
-        close = FeedbackButton(text="CLOSE", size_hint_y=None, height=52)
-        content.add_widget(close)
-        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.94, 0.58))
+        from remote_participant import RemoteParticipantClient
+
+        if not hasattr(self, "remote_participant_client"):
+            self.remote_participant_client = RemoteParticipantClient(
+                on_event=self._remote_participant_event
+            )
+
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        form = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        form.bind(minimum_height=form.setter("height"))
+        form.add_widget(Label(text="Подключение к удалённому участнику", size_hint_y=None, height=30))
+        self.remote_url_input = TextInput(
+            hint_text="Адрес сервера: wss://…", text=getattr(self, "remote_saved_url", ""),
+            multiline=False, size_hint_y=None, height=46, write_tab=False
+        )
+        self.remote_name_input = TextInput(
+            hint_text="Имя участника", text=getattr(self, "remote_saved_name", "Owner"),
+            multiline=False, size_hint_y=None, height=46, write_tab=False
+        )
+        self.remote_token_input = TextInput(
+            hint_text="Токен доступа (секретный)", password=True, multiline=False,
+            size_hint_y=None, height=46, write_tab=False
+        )
+        form.add_widget(self.remote_url_input)
+        form.add_widget(self.remote_name_input)
+        form.add_widget(self.remote_token_input)
+        content.add_widget(form)
+
+        self.remote_connection_status = Label(
+            text="Не подключено. Введите адрес сервера и токен.",
+            size_hint_y=None, height=48, halign="left", valign="middle"
+        )
+        self.remote_connection_status.bind(
+            size=lambda w, value: setattr(w, "text_size", (max(1, value[0]), max(1, value[1])))
+        )
+        content.add_widget(self.remote_connection_status)
+
+        self.remote_messages = TextInput(
+            text="Здесь появятся сообщения удалённого участника.",
+            readonly=True, multiline=True, size_hint_y=1, padding=(8, 8),
+            background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1)
+        )
+        content.add_widget(self.remote_messages)
+
+        send_row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=44)
+        self.remote_message_input = TextInput(
+            hint_text="Сообщение удалённому участнику…", multiline=False, write_tab=False
+        )
+        send_row.add_widget(self.remote_message_input)
+        send_button = FeedbackButton(
+            text="ОТПРАВИТЬ", size_hint_x=None, width=110,
+            background_normal="", background_color=(0.13,0.31,0.53,1)
+        )
+        send_button.bind(on_release=self._send_remote_participant_message)
+        send_row.add_widget(send_button)
+        content.add_widget(send_row)
+
+        actions = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=46)
+        self.remote_connect_button = FeedbackButton(
+            text="ПОДКЛЮЧИТЬСЯ", background_normal="", background_color=(0.12,0.45,0.28,1)
+        )
+        self.remote_connect_button.bind(on_release=self._connect_remote_participant)
+        actions.add_widget(self.remote_connect_button)
+        disconnect = FeedbackButton(
+            text="ОТКЛЮЧИТЬСЯ", background_normal="", background_color=(0.45,0.20,0.20,1)
+        )
+        disconnect.bind(on_release=lambda *_: self.remote_participant_client.disconnect())
+        actions.add_widget(disconnect)
+        close = FeedbackButton(text="ЗАКРЫТЬ", background_normal="")
+        actions.add_widget(close)
+        content.add_widget(actions)
+
+        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.96, 0.88))
         close.bind(on_release=lambda *_: popup.dismiss())
+        self.remote_participant_popup = popup
         popup.open()
-        self._append_report("remote_participant_placeholder_opened", connected=False)
+        self._append_report("remote_participant_connection_ui_opened", connected=self.remote_participant_client.connected)
+
+    def _connect_remote_participant(self, *_: Any) -> None:
+        url = self.remote_url_input.text.strip()
+        name = self.remote_name_input.text.strip()
+        token = self.remote_token_input.text
+        if not url or not name or not token:
+            self.remote_connection_status.text = "Заполните адрес сервера, имя и токен."
+            return
+        self.remote_saved_url = url
+        self.remote_saved_name = name
+        self.remote_connection_status.text = "Подключение…"
+        self.remote_connect_button.disabled = True
+        self._append_report("remote_participant_connect_requested", url=url, participant_name=name, token_present=bool(token))
+        self.remote_participant_client.connect(url, name, token)
+
+    def _remote_participant_event(self, event: str, data: dict[str, Any]) -> None:
+        def apply_event(_dt: float = 0) -> None:
+            if event == "connected":
+                self.remote_connection_status.text = "ПОДКЛЮЧЕНО: " + str(data.get("name", "участник"))
+                self.remote_connect_button.disabled = False
+                self.remote_connect_button.text = "ПОДКЛЮЧЕНО"
+                self.remote_participant_button.background_color = (0.12,0.55,0.28,1)
+                self._append_report("remote_participant_connected", participant_id=data.get("participant_id"), participant_name=data.get("name"))
+            elif event == "message":
+                line = "[{}] {}".format(data.get("name", "участник"), data.get("text", ""))
+                current = self.remote_messages.text
+                self.remote_messages.text = ("" if current.startswith("Здесь появятся") else current + "\n") + line
+                self._append_report("remote_participant_message_received", participant_name=data.get("name"), message=str(data.get("text", ""))[:12000])
+            elif event == "disconnected":
+                self.remote_connection_status.text = str(data.get("message", "Соединение закрыто."))
+                self.remote_connect_button.disabled = False
+                self.remote_connect_button.text = "ПОДКЛЮЧИТЬСЯ"
+                self.remote_participant_button.background_color = (0.13,0.31,0.53,1)
+                self._append_report("remote_participant_disconnected", reason=data.get("message", ""))
+            elif event == "error":
+                self.remote_connection_status.text = "Ошибка: " + str(data.get("message", "неизвестная ошибка"))
+                self.remote_connect_button.disabled = False
+                self.remote_connect_button.text = "ПОДКЛЮЧИТЬСЯ"
+                self._append_report("remote_participant_connection_failed", error=str(data.get("message", "")))
+        Clock.schedule_once(apply_event, 0)
+
+    def _send_remote_participant_message(self, *_: Any) -> None:
+        message = self.remote_message_input.text.strip()
+        if not message:
+            return
+        if self.remote_participant_client.send_message(message):
+            self.remote_messages.text += "\n[Я] " + message
+            self.remote_message_input.text = ""
+            self._append_report("remote_participant_message_sent", message=message[:12000])
+        else:
+            self.remote_connection_status.text = "Нет активного соединения. Сначала подключитесь."
 
     def _toggle_practical_mode(self, *_: Any) -> None:
         self.practical_mode = not self.practical_mode
