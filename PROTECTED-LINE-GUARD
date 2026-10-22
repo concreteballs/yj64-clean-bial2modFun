@@ -65,6 +65,76 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.filechooser import FileChooserListView
 
+class ChatTranscript(BoxLayout):
+    """Scrollable, individually selectable chat messages with per-message copy."""
+    def __init__(self, **kwargs):
+        self._text = ""
+        super().__init__(orientation="vertical", spacing=8, padding=(4, 5), **kwargs)
+
+    @property
+    def text(self):
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = str(value or "")
+        self._render_messages()
+
+    def _copy(self, value):
+        try:
+            from kivy.core.clipboard import Clipboard
+            Clipboard.copy(str(value))
+        except Exception:
+            pass
+
+    def _message_parts(self):
+        import re
+        value = self._text.strip()
+        if not value:
+            return []
+        chunks = re.split(r"\n\n(?=(?:Owner|Participant [123]|YJ-64|User|Participant):\n)", value)
+        result = []
+        for chunk in chunks:
+            first, sep, body = chunk.partition("\n")
+            role = first[:-1] if first.endswith(":") else "YJ-64"
+            if not sep:
+                body, role = chunk, "YJ-64"
+            result.append((role, body, chunk))
+        return result
+
+    def _render_messages(self):
+        self.clear_widgets()
+        parts = self._message_parts()
+        copy_all = FeedbackButton(text="⧉ COPY DISCUSSION FROM LAST OWNER MESSAGE", size_hint_y=None, height=34, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        def copy_discussion(*_):
+            start = 0
+            for index, (role, _body, _raw) in enumerate(parts):
+                if role == "Owner":
+                    start = index
+            self._copy("\n\n".join(item[2] for item in parts[start:]))
+        copy_all.bind(on_release=copy_discussion)
+        self.add_widget(copy_all)
+        for role, body, raw in parts:
+            owner = role.lower() in {"owner", "user"}
+            participant = role.startswith("Participant")
+            color = (0.10,0.27,0.42,1) if owner else ((0.12,0.31,0.25,1) if participant else (0.15,0.19,0.29,1))
+            row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=max(82, min(620, (len(body.splitlines()) + max(1, len(body)//48))*20 + 48)))
+            if not owner:
+                row.add_widget(Label(text="", size_hint_x=0.08))
+            bubble = BoxLayout(orientation="vertical", spacing=4, padding=7, size_hint_x=0.92 if owner else 0.84)
+            title = Label(text=("👤 " if owner else ("🤖 " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
+            title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
+            bubble.add_widget(title)
+            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=max(48, min(560, (len(body.splitlines()) + max(1, len(body)//48))*20 + 8)), padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
+            bubble.add_widget(message)
+            copy_button = FeedbackButton(text="⧉ COPY ANSWER", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+            copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
+            bubble.add_widget(copy_button)
+            row.add_widget(bubble)
+            row.add_widget(Label(text="", size_hint_x=0.08))
+            self.add_widget(row)
+        self.height = max(150, sum(child.height + self.spacing for child in self.children) + 10)
+
 class FeedbackButton(Button):
     """Button with tactile and visual press feedback."""
     def __init__(self, **kwargs):
@@ -213,7 +283,7 @@ class YJ64BaseApp(App):
                 self.practical_mode_button = button
             elif key == 14:
                 self.implementation_button = button
-                self.implementation_button.disabled = True
+                self.implementation_button.disabled = not bool(self._chat_target_details()["connected_participants"])
         root.add_widget(action_grid)
 
         self.chat_nav_row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=32)
@@ -228,8 +298,7 @@ class YJ64BaseApp(App):
         root.add_widget(self.chat_heading)
         chat_area = BoxLayout(orientation="horizontal", spacing=6)
         self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=8, scroll_type=["bars","content"], bar_color=(0.36,0.66,1,1), bar_inactive_color=(0.28,0.53,0.85,0.45))
-        self.chat_output = TextInput(text=self._render_history(), readonly=True, multiline=True, size_hint_y=None, height=max(150,Window.height*0.45), padding=(10,10), font_size="14sp", background_normal="", background_active="", background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1), cursor_color=(0.91,0.95,1,1))
-        self.chat_output.bind(text=self._resize_chat_output)
+        self.chat_output = ChatTranscript(size_hint_y=None, height=max(150,Window.height*0.45))
         self.chat_scroll.add_widget(self.chat_output)
         chat_area.add_widget(self.chat_scroll)
 
@@ -531,7 +600,7 @@ class YJ64BaseApp(App):
         self.common_history = self.workspace.load_messages(chat_id)
         self.chat_output.text = self._render_history()
         self.consensus_reached = False
-        self.implementation_button.disabled = True
+        self.implementation_button.disabled = not bool(self._chat_target_details()["connected_participants"])
         self._append_report("workspace_chat_selected", chat_id=chat_id)
         self.status.text = f"Opened chat {chat_id[:8]} with {len(self.common_history)} saved messages."
 
@@ -577,7 +646,7 @@ class YJ64BaseApp(App):
         self.common_history = []
         self.chat_output.text = self._render_history()
         self.consensus_reached = False
-        self.implementation_button.disabled = True
+        self.implementation_button.disabled = not bool(self._chat_target_details()["connected_participants"])
         self._append_report("workspace_chat_created", chat_id=self.current_chat_id)
         self.status.text = "New local chat created."
 
@@ -866,7 +935,7 @@ class YJ64BaseApp(App):
         self.practical_mode = not self.practical_mode
         self.consensus_reached = False
         self.consensus_summary = ""
-        self.implementation_button.disabled = True
+        self.implementation_button.disabled = not bool(self._chat_target_details()["connected_participants"])
         self.practical_mode_button.text = (
             "ПРАКТИЧЕСКИЕ ДЕЙСТВИЯ: ON — ОЖИДАЕМ КОНСЕНСУС"
             if self.practical_mode
@@ -889,34 +958,28 @@ class YJ64BaseApp(App):
             self.status.text = "Practical mode disabled; normal chat instructions restored."
 
     def _start_agent_implementation(self, *_: Any) -> None:
-        if not self.practical_mode or not self.consensus_reached:
-            self._append_report(
-                "agent_implementation_rejected",
-                practical_mode=self.practical_mode,
-                consensus_reached=self.consensus_reached,
-                reason="practical_mode_or_consensus_missing",
-            )
-            self.status.text = (
-                "Implementation is locked until practical mode is enabled "
-                "and connected models report consensus."
-            )
+        target_details = self._chat_target_details()
+        participants = list(target_details["connected_participants"])
+        if not participants:
+            self._append_report("commercial_agent_launch_rejected", reason="no_connected_participants")
+            self.status.text = "Коммерческий агент не запущен: сначала подключите хотя бы одну модель."
             return
+        self.practical_mode = True
+        self.practical_mode_button.text = "КОММЕРЧЕСКИЙ АГЕНТ: РЫНОЧНОЕ ИССЛЕДОВАНИЕ"
+        self.practical_mode_button.background_color = (0.15, 0.65, 0.25, 1)
+        self.consensus_reached = True
+        self.consensus_summary = "Read-only commercial research session; no financial or external actions authorized."
         request = (
-            "IMPLEMENTATION PHASE. The discussion has reached the app's explicit "
-            "consensus gate. Produce a concrete implementation proposal now: "
-            "list the exact files to change, provide complete code patches, "
-            "explain integration points, and include tests and rollback steps. "
-            "Do not claim that you modified the repository or executed code. "
-            "This app currently has LLM connections, not a verified repository-writing "
-            "agent, so return reviewable patches and identify any missing action-agent "
-            "capability. End with [IMPLEMENTATION DRAFT]."
+            "COMMERCIAL RESEARCH AGENT — READ-ONLY MODE.\n"
+            "Investigate the commercial opportunity described by the owner. Identify customer need, target segments, competitors, pricing, distribution channels, platform fees, startup and operating costs, plausible revenue scenarios, key assumptions, legal/operational risks, and measurable validation steps. Cite sources and dates for factual claims when available; clearly label unknowns and estimates. Do not invent live market facts.\n"
+            "STRICT PERMISSION BOUNDARY: research and analysis only. Do not buy anything, spend money, publish listings, contact people, place trades, make transactions, modify code or files, or claim to have performed any of those actions. Do not treat estimated revenue as actual profit. Present benefits, risks, uncertainties, evidence, a proposed next step, and explicit stop conditions. Ask the owner before any action that creates an external commitment.\n"
+            "Owner's request: "
         )
-        self._append_report(
-            "agent_implementation_requested",
-            participants=self._chat_target_details()["connected_participants"],
-            consensus_summary=self.consensus_summary,
-            execution_capability="llm_draft_only_until_action_agent_is_installed",
-        )
+        if self.chat_input.text.strip():
+            request += self.chat_input.text.strip()
+        else:
+            request += "Propose and compare low-cost small commercial opportunities that can be validated without spending money. Begin with research and a validation plan only."
+        self._append_report("commercial_agent_launch_requested", participants=participants, mode="read_only", spending_authorized=False, external_actions_authorized=False)
         self.chat_input.text = request
         self._send_llm_chat()
 
@@ -2198,6 +2261,7 @@ class YJ64BaseApp(App):
 
 
 YJ64BaseApp().run()
+
 END ALLOWED
 
 ============================================================
@@ -4287,7 +4351,7 @@ END ALLOWED
 
 
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=2a6093f2c77cb16c037aa241344a1987e55dc539
+EXPECTED-GIT-BLOB-SHA:main.py=b0994aae3709f9e29e2148b9d4a342efbc226e60
 EXPECTED-GIT-BLOB-SHA:llm_api.py=220d76677ea7e3435eae7d31dbba6e3b1a7394fb
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
