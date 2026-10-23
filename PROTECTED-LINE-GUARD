@@ -3488,7 +3488,7 @@ def generate_response(
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
         http_method="POST", endpoint=url, prompt=prompt,
-        history_count=request_history_count, **request_metrics,
+        **request_metrics,
     )
     _report(
         report, "gateway_request_sending",
@@ -5937,7 +5937,7 @@ Human-readable semantic summary. Structured events, state, and tasks live in `yj
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
 EXPECTED-GIT-BLOB-SHA:main.py=c08c5d1454613e84538c074abfb4f376e4f3d7c9
-EXPECTED-GIT-BLOB-SHA:llm_api.py=b83f109174e2390670c096a8981570ba9309a2ad
+EXPECTED-GIT-BLOB-SHA:llm_api.py=9f9df82c79cd22cdbca7e6737aea9bd2cc43ed5c
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
