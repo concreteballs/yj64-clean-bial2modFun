@@ -88,6 +88,102 @@ def verify_apk_signature(
     return actual
 
 
+
+def sign_apk(
+    apk_path: str | Path,
+    output_path: str | Path,
+    expected_sha256: str = REFERENCE_SHA256,
+    apksigner_path: str = "apksigner",
+) -> str:
+    """Sign to a separate output using CI-injected secrets, then verify the cert."""
+    apk = Path(apk_path).resolve()
+    output = Path(output_path).resolve()
+    if not apk.is_file():
+        raise SigningVerificationError(f"Input APK does not exist: {apk}")
+    if apk == output:
+        raise SigningVerificationError("Output must differ from the input APK.")
+    if output.exists():
+        raise SigningVerificationError(
+            "Output already exists; refusing to overwrite an existing artifact."
+        )
+
+    required = (
+        "YJ64_KEYSTORE_BASE64",
+        "YJ64_KEYSTORE_PASSWORD",
+        "YJ64_KEY_ALIAS",
+        "YJ64_KEY_PASSWORD",
+    )
+    missing = [name for name in required if not os.environ.get(name)]
+    if missing:
+        raise SigningVerificationError(
+            "Signing secrets are not configured: " + ", ".join(missing)
+        )
+
+    executable = shutil.which(apksigner_path)
+    if executable is None:
+        raise SigningVerificationError(
+            "apksigner was not found; install Android build-tools or pass its path."
+        )
+
+    try:
+        keystore_bytes = base64.b64decode(
+            os.environ["YJ64_KEYSTORE_BASE64"], validate=True
+        )
+    except (ValueError, base64.binascii.Error) as exc:
+        raise SigningVerificationError(
+            "YJ64_KEYSTORE_BASE64 is not valid base64."
+        ) from exc
+    if not keystore_bytes:
+        raise SigningVerificationError("Decoded keystore is empty.")
+
+    key_fd, key_path = tempfile.mkstemp(prefix="yj64-sign-", suffix=".keystore")
+    os.chmod(key_path, 0o600)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temp_output = output.with_name(output.name + ".signing-tmp")
+    try:
+        with os.fdopen(key_fd, "wb") as handle:
+            handle.write(keystore_bytes)
+        if temp_output.exists():
+            raise SigningVerificationError(
+                "Temporary output already exists; refusing to overwrite it."
+            )
+        result = subprocess.run(
+            [
+                executable, "sign",
+                "--ks", key_path,
+                "--ks-key-alias", os.environ["YJ64_KEY_ALIAS"],
+                "--ks-pass", "env:YJ64_KEYSTORE_PASSWORD",
+                "--key-pass", "env:YJ64_KEY_PASSWORD",
+                "--out", str(temp_output),
+                str(apk),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=os.environ.copy(),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise SigningVerificationError(
+                "apksigner failed to sign the APK."
+                + (f" Details: {detail}" if detail else "")
+            )
+        fingerprint = verify_apk_signature(
+            temp_output, expected_sha256, apksigner_path
+        )
+        temp_output.replace(output)
+        return fingerprint
+    finally:
+        try:
+            os.remove(key_path)
+        except FileNotFoundError:
+            pass
+        try:
+            temp_output.unlink()
+        except FileNotFoundError:
+            pass
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify that a YJ-64 APK is signed by the expected certificate."
@@ -108,9 +204,18 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        fingerprint = verify_apk_signature(
-            args.apk, args.expected_sha256, args.apksigner
-        )
+        if args.sign:
+            if not args.output:
+                parser.error("--output is required with --sign")
+            fingerprint = sign_apk(
+                args.apk, args.output, args.expected_sha256, args.apksigner
+            )
+        else:
+            if args.output:
+                parser.error("--output is only valid with --sign")
+            fingerprint = verify_apk_signature(
+                args.apk, args.expected_sha256, args.apksigner
+            )
     except (SigningVerificationError, OSError, subprocess.SubprocessError) as exc:
         print(f"SIGNING VERIFICATION FAILED: {exc}", file=sys.stderr)
         return 2
