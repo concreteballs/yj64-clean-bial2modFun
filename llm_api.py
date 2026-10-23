@@ -527,17 +527,31 @@ def generate_response(
             })
         api_method = "chat_completions"
 
+    request_body_bytes = len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    payload_history = (
+        payload.get("messages") or payload.get("contents")
+        or payload.get("input") or payload.get("inputs") or []
+    )
+    request_history_count = len(payload_history) if isinstance(payload_history, list) else 0
+    request_started = time.monotonic()
+    request_metrics = {
+        "request_body_bytes": request_body_bytes,
+        "history_count": request_history_count,
+    }
     _report(
         report, "gateway_request_prepared",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
         http_method="POST", endpoint=url, prompt=prompt,
-        history_count=len(history or []),
+        history_count=request_history_count, **request_metrics,
     )
     _report(
         report, "gateway_request_sending",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
+        **request_metrics,
     )
     try:
         data = _request("POST", url, headers, payload=payload, report=report)
@@ -547,13 +561,17 @@ def generate_response(
             operation_id=operation, route_id=selected_route,
             provider=provider, model=model, mode=selected_mode,
             api_method=api_method, endpoint=url,
+            duration_ms=round((time.monotonic() - request_started) * 1000, 2),
+            **request_metrics,
             error_type=type(exc).__name__, error=str(exc),
         )
         raise
+    duration_ms = round((time.monotonic() - request_started) * 1000, 2)
     _report(
         report, "gateway_http_response_received",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
+        duration_ms=duration_ms, **request_metrics,
     )
 
     response_text = (
