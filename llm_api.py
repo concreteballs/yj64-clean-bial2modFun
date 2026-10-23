@@ -6,6 +6,7 @@ Participants send a route marker and mode; provider-specific HTTP details stay h
 from __future__ import annotations
 
 import json
+import random
 import ssl
 import time
 import uuid
@@ -44,7 +45,7 @@ def _request(
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Perform a bounded API request with cautious transient-error retries."""
-    max_attempts = 3
+    max_attempts = 5
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -69,16 +70,17 @@ def _request(
             last_error = exc
             if exc.code not in {429, 503} or attempt >= max_attempts:
                 raise RuntimeError(f"HTTP {exc.code} after {attempt} attempt(s): {detail[:800]}") from exc
-            delay = min(2 ** attempt, 8)
-            if exc.code == 429:
-                retry_after = (exc.headers or {}).get("Retry-After", "").strip()
-                try:
-                    delay = max(0.0, float(retry_after))
-                except (TypeError, ValueError):
-                    pass
-                if delay > 8:
-                    raise RuntimeError(f"HTTP 429 after {attempt} attempt(s); Retry-After={retry_after or 'not supplied'}: {detail[:800]}") from exc
-            time.sleep(delay)
+            # Google recommends bounded exponential backoff for transient UNAVAILABLE
+            # responses. Honour numeric Retry-After when present, then add jitter.
+            delay = min(2 ** (attempt - 1), 16)
+            retry_after = (exc.headers or {}).get("Retry-After", "").strip()
+            try:
+                server_delay = max(0.0, float(retry_after))
+                delay = min(max(delay, server_delay), 30.0)
+            except (TypeError, ValueError):
+                pass
+            jitter = random.uniform(0.0, min(1.0, delay * 0.25))
+            time.sleep(delay + jitter)
         except URLError as exc:
             last_error = exc
             if method.upper() != "GET" or attempt >= max_attempts:
