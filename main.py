@@ -1089,6 +1089,25 @@ class YJ64BaseApp(App):
             ("НАСТРОИТЬ API-КЛЮЧ / МОДЕЛЬ", lambda: self._open_participant_settings(str(agent.get("runner") or "Participant 1"))),
             ("ПОСМОТРЕТЬ КОД И РЕЗУЛЬТАТЫ ПРОВЕРКИ", lambda: self._show_agent_code(agent_id)),
         ]
+        for runner_name in ("Participant 1", "Participant 2", "Participant 3"):
+            selected = str(agent.get("runner") or "Participant 1") == runner_name
+            runner_button = FeedbackButton(
+                text=("✓ ИСПОЛНИТЕЛЬ: " if selected else "СДЕЛАТЬ ИСПОЛНИТЕЛЕМ: ") + runner_name,
+                size_hint_y=None, height=46,
+                background_normal="",
+                background_color=(0.12, 0.43, 0.29, 1) if selected else (0.15, 0.28, 0.48, 1),
+                color=(1, 1, 1, 1),
+            )
+            def select_runner(_button: Any, name: str = runner_name) -> None:
+                current = self.workspace.load_agent(agent_id)
+                if current:
+                    current["runner"] = name
+                    self.workspace.save_agent(current)
+                    self._append_report("agent_runner_selected", agent_id=agent_id, runner=name)
+                popup.dismiss()
+                self._open_agent_settings(agent_id)
+            runner_button.bind(on_release=select_runner)
+            content.add_widget(runner_button)
         for label, callback in actions:
             button = FeedbackButton(text=label, size_hint_y=None, height=54)
             button.bind(on_release=lambda _b, action=callback: (popup.dismiss(), action()))
