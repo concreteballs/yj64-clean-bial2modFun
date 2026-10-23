@@ -119,18 +119,18 @@ class ChatTranscript(BoxLayout):
             owner = role.lower() in {"owner", "user"}
             participant = role.startswith("Participant")
             right_aligned = owner or role == "Participant 2"
-            colors = {"Participant 1": (0.10,0.31,0.47,1), "Participant 2": (0.32,0.20,0.45,1), "Participant 3": (0.12,0.36,0.28,1)}
-            color = (0.10,0.27,0.42,1) if owner else colors.get(role, (0.15,0.19,0.29,1))
-            body_height = max(48, min(560, (len(body.splitlines()) + max(1, len(body)//48))*20 + 8))
+            colors = {"Participant 1": (0.04,0.32,0.66,1), "Participant 2": (0.42,0.16,0.56,1), "Participant 3": (0.04,0.43,0.29,1)}
+            color = (0.56,0.31,0.04,1) if owner else colors.get(role, (0.18,0.23,0.34,1))
+            body_height = max(72, min(360, (len(body.splitlines()) + max(1, len(body)//48))*18 + 8))
             row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=body_height + 80)
             if not right_aligned:
                 row.add_widget(Label(text="", size_hint_x=0.08))
             bubble = BoxLayout(orientation="vertical", spacing=4, padding=7, size_hint_x=0.92 if right_aligned else 0.84)
-            participant_icon = {"Participant 1": "🔵", "Participant 2": "🟣", "Participant 3": "🟢"}.get(role, "🤖")
+            participant_icon = {"Participant 1": "🔷", "Participant 2": "🟣", "Participant 3": "🟢"}.get(role, "🤖")
             title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
-            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
+            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1), do_scroll_x=False, scroll_type=["bars", "content"], bar_width=4)
             bubble.add_widget(message)
             copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
@@ -187,17 +187,17 @@ Window.clearcolor = (0.91, 0.95, 0.99, 1)
 
 UI_LANGUAGES = [("ru","Русский"),("en","English"),("es","Español"),("zh","简体中文"),("hi","हिन्दी"),("ar","العربية"),("fr","Français"),("pt","Português"),("de","Deutsch"),("ja","日本語"),("ko","한국어"),("it","Italiano"),("tr","Türkçe"),("id","Bahasa Indonesia")]
 UI_TEXT = {
-"ru":["YJ-64","Общий чат","Участники","Напишите сообщение…","ОТПРАВИТЬ","Инструменты / монитор","Чаты","Новый чат","Прикрепить файл","Камера / медиа","Критика проекта: выкл.","Файл навыков","Удалённый участник","Практический режим: выкл.","Коммерческий агент"],
-"en":["YJ-64","Common chat","Participants","Write a message…","SEND","Tools / monitor","Chats","New chat","Attach file","Camera / media","Project critique: off","Skills file","Remote participant","Practical mode: off","Commercial agent"],
-"es":["YJ-64","Chat común","Participantes","Escribe un mensaje…","ENVIAR","Herramientas / monitor","Chats","Nuevo chat","Adjuntar archivo","Cámara / medios","Crítica: desactivada","Archivo de habilidades","Participante remoto","Modo práctico: desactivado","Agente comercial"],
-"zh":["YJ-64","公共聊天","参与者","输入消息…","发送","工具 / 监控","聊天","新建聊天","添加文件","相机 / 媒体","项目批判：关闭","技能文件","远程参与者","实践模式：关闭","商业研究代理"],
-"hi":["YJ-64","सामान्य चैट","प्रतिभागी","संदेश लिखें…","भेजें","टूल / मॉनिटर","चैट","नई चैट","फ़ाइल जोड़ें","कैमरा / मीडिया","आलोचना: बंद","स्किल फ़ाइल","रिमोट प्रतिभागी","प्रैक्टिकल मोड: बंद","वाणिज्यिक एजेंट"],
+"ru":["YJ-64","Общий чат","Участники","Напишите сообщение…","ОТПРАВИТЬ","Инструменты / монитор","Чаты","Новый чат","Прикрепить файл","Камера / медиа","Критика проекта: выкл.","Файл навыков","Удалённый участник","Практический режим: выкл.","Агенты"],
+"en":["YJ-64","Common chat","Participants","Write a message…","SEND","Tools / monitor","Chats","New chat","Attach file","Camera / media","Project critique: off","Skills file","Remote participant","Practical mode: off","Agents"],
+"es":["YJ-64","Chat común","Participantes","Escribe un mensaje…","ENVIAR","Herramientas / monitor","Chats","Nuevo chat","Adjuntar archivo","Cámara / medios","Crítica: desactivada","Archivo de habilidades","Participante remoto","Modo práctico: desactivado","Agentes"],
+"zh":["YJ-64","公共聊天","参与者","输入消息…","发送","工具 / 监控","聊天","新建聊天","添加文件","相机 / 媒体","项目批判：关闭","技能文件","远程参与者","实践模式：关闭","智能体"],
+"hi":["YJ-64","सामान्य चैट","प्रतिभागी","संदेश लिखें…","भेजें","टूल / मॉनिटर","चैट","नई चैट","फ़ाइल जोड़ें","कैमरा / मीडिया","आलोचना: बंद","स्किल फ़ाइल","रिमोट प्रतिभागी","प्रैक्टिकल मोड: बंद","एजेंट"],
 "ar":["YJ-64","دردشة مشتركة","المشاركون","اكتب رسالة…","إرسال","الأدوات / المراقبة","الدردشات","دردشة جديدة","إرفاق ملف","الكاميرا / الوسائط","النقد: إيقاف","ملف المهارات","مشارك عن بُعد","الوضع العملي: إيقاف","الوكيل التجاري"],
-"fr":["YJ-64","Chat commun","Participants","Écrire un message…","ENVOYER","Outils / moniteur","Chats","Nouveau chat","Joindre un fichier","Caméra / médias","Critique : désactivée","Fichier de compétences","Participant distant","Mode pratique : désactivé","Agent commercial"],
-"pt":["YJ-64","Chat comum","Participantes","Escreva uma mensagem…","ENVIAR","Ferramentas / monitor","Chats","Novo chat","Anexar arquivo","Câmara / mídia","Crítica: desligada","Arquivo de competências","Participante remoto","Modo prático: desligado","Agente comercial"],
-"de":["YJ-64","Gemeinsamer Chat","Teilnehmer","Nachricht schreiben…","SENDEN","Werkzeuge / Monitor","Chats","Neuer Chat","Datei anhängen","Kamera / Medien","Kritik: aus","Skill-Datei","Remote-Teilnehmer","Praxismodus: aus","Kommerz-Agent"],
-"ja":["YJ-64","共通チャット","参加者","メッセージを入力…","送信","ツール / モニター","チャット","新しいチャット","ファイルを添付","カメラ / メディア","批評：オフ","スキルファイル","リモート参加者","実践モード：オフ","商用エージェント"],
-"ko":["YJ-64","공용 채팅","참여자","메시지 입력…","전송","도구 / 모니터","채팅","새 채팅","파일 첨부","카메라 / 미디어","비평: 꺼짐","스킬 파일","원격 참여자","실행 모드: 꺼짐","상업 에이전트"],
+"fr":["YJ-64","Chat commun","Participants","Écrire un message…","ENVOYER","Outils / moniteur","Chats","Nouveau chat","Joindre un fichier","Caméra / médias","Critique : désactivée","Fichier de compétences","Participant distant","Mode pratique : désactivé","Agents"],
+"pt":["YJ-64","Chat comum","Participantes","Escreva uma mensagem…","ENVIAR","Ferramentas / monitor","Chats","Novo chat","Anexar arquivo","Câmara / mídia","Crítica: desligada","Arquivo de competências","Participante remoto","Modo prático: desligado","Agentes"],
+"de":["YJ-64","Gemeinsamer Chat","Teilnehmer","Nachricht schreiben…","SENDEN","Werkzeuge / Monitor","Chats","Neuer Chat","Datei anhängen","Kamera / Medien","Kritik: aus","Skill-Datei","Remote-Teilnehmer","Praxismodus: aus","Agenten"],
+"ja":["YJ-64","共通チャット","参加者","メッセージを入力…","送信","ツール / モニター","チャット","新しいチャット","ファイルを添付","カメラ / メディア","批評：オフ","スキルファイル","リモート参加者","実践モード：オフ","エージェント"],
+"ko":["YJ-64","공용 채팅","참여자","메시지 입력…","전송","도구 / 모니터","채팅","새 채팅","파일 첨부","카메라 / 미디어","비평: 꺼짐","스킬 파일","원격 참여자","실행 모드: 꺼짐","에이전트"],
 "it":["YJ-64","Chat comune","Partecipanti","Scrivi un messaggio…","INVIA","Strumenti / monitor","Chat","Nuova chat","Allega file","Fotocamera / media","Critica: disattivata","File competenze","Partecipante remoto","Modalità pratica: disattivata","Avvia implementazione"],
 "tr":["YJ-64","Ortak sohbet","Katılımcılar","Mesaj yazın…","GÖNDER","Araçlar / monitör","Sohbetler","Yeni sohbet","Dosya ekle","Kamera / medya","Eleştiri: kapalı","Beceri dosyası","Uzak katılımcı","Pratik mod: kapalı","Uygulamayı başlat"],
 "id":["YJ-64","Obrolan bersama","Peserta","Tulis pesan…","KIRIM","Alat / monitor","Obrolan","Obrolan baru","Lampirkan file","Kamera / media","Kritik: nonaktif","File keterampilan","Peserta jarak jauh","Mode praktik: nonaktif","Mulai implementasi"],
@@ -278,7 +278,7 @@ class YJ64BaseApp(App):
         action_grid = GridLayout(cols=2, spacing=6, size_hint_y=None, row_default_height=62, row_force_default=True)
         action_grid.bind(minimum_height=action_grid.setter("height"))
         self.action_buttons = []
-        actions = [(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
+        actions = [(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._open_agents_menu)]
         for key, callback in actions:
             button = FeedbackButton(text=self._t(key), size_hint_y=None, height=62, font_size="10sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
             button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-12),max(1,value[1]-8))))
@@ -999,6 +999,320 @@ class YJ64BaseApp(App):
             )
         else:
             self.status.text = "Practical mode disabled; normal chat instructions restored."
+
+    def _open_agents_menu(self, *_: Any) -> None:
+        agents = self.workspace.list_agents()
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        note = Label(text="Короткое нажатие: запустить с инструкциями моделей.\nДолгое нажатие: настройки и личный чат.", size_hint_y=None, height=58)
+        content.add_widget(note)
+        popup = Popup(title="АГЕНТЫ", content=content, size_hint=(0.94, 0.86))
+        for agent in agents:
+            agent_id = str(agent["id"])
+            button = DialogueControlButton(
+                short_callback=lambda aid=agent_id: (popup.dismiss(), self._launch_agent_with_models(aid)),
+                long_callback=lambda aid=agent_id: (popup.dismiss(), self._open_agent_settings(aid)),
+                text=str(agent.get("name") or "Агент"),
+                size_hint_y=None, height=58, font_size="13sp",
+                background_normal="", background_color=(0.15, 0.28, 0.48, 1),
+                color=(1, 1, 1, 1),
+            )
+            button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-12), max(1, value[1]-8))))
+            content.add_widget(button)
+        create = FeedbackButton(text="＋ СОЗДАТЬ НОВОГО АГЕНТА", size_hint_y=None, height=58, background_normal="", background_color=(0.12, 0.43, 0.29, 1), color=(1, 1, 1, 1))
+        create.bind(on_release=lambda *_: (popup.dismiss(), self._create_agent_popup()))
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=48)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(create)
+        content.add_widget(close)
+        popup.open()
+        self._append_report("agents_menu_opened", agent_count=len(agents))
+
+    def _create_agent_popup(self) -> None:
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        name_input = TextInput(text="", hint_text="Название агента", multiline=False, size_hint_y=None, height=48)
+        instructions = TextInput(text="", hint_text="Опиши задачу и инструкции для нового агента", multiline=True)
+        note = Label(text="Модели подготовят код-кандидат. Произвольный код не исполняется и не публикуется автоматически.", size_hint_y=None, height=64)
+        buttons = BoxLayout(orientation="horizontal", spacing=8, size_hint_y=None, height=52)
+        create = FeedbackButton(text="СОЗДАТЬ", size_hint_x=0.6)
+        close = FeedbackButton(text="ОТМЕНА", size_hint_x=0.4)
+        buttons.add_widget(create)
+        buttons.add_widget(close)
+        content.add_widget(name_input)
+        content.add_widget(instructions)
+        content.add_widget(note)
+        content.add_widget(buttons)
+        popup = Popup(title="СОЗДАТЬ АГЕНТА", content=content, size_hint=(0.96, 0.9), auto_dismiss=False)
+        def create_agent(*_args: Any) -> None:
+            prompt = instructions.text.strip()
+            if not prompt:
+                note.text = "Сначала введи инструкции для агента."
+                return
+            name = name_input.text.strip() or "Новый агент"
+            details = self._chat_target_details()
+            configured = list(details.get("connected_participants") or [])
+            runner = configured[0] if configured else "Participant 1"
+            agent = self.workspace.create_agent(name, prompt, runner=runner)
+            self.workspace.save_agent_message(agent["id"], "owner", prompt)
+            self._append_report("agent_created", agent_id=agent["id"], name=name, runner=runner, model_count=len(configured), code_execution_enabled=False, public_release=False)
+            popup.dismiss()
+            self.status.text = f"Агент «{name}» создан. Подготавливается код-кандидат и статическая проверка."
+            self._generate_agent_code(agent["id"])
+        create.bind(on_release=create_agent)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _generate_agent_code(self, agent_id: str) -> None:
+        from threading import Thread
+        agent = self.workspace.load_agent(agent_id)
+        if not agent:
+            return
+        participants = list(self._chat_target_details().get("connected_participants") or [])
+        def worker() -> None:
+            candidates = []
+            errors = []
+            for participant in participants:
+                status = self._participant_config_status(participant)
+                request = (
+                    "Create a reviewable Python implementation candidate for this YJ-64 agent. "
+                    "Return only Python code in one fenced python block. The code is UNTRUSTED and must not "
+                    "perform network, filesystem, subprocess, shell, payment, credential, publication, or "
+                    "self-modification actions. Do not include imports except json, math, re, datetime, "
+                    "statistics, or collections. Provide pure functions with explicit inputs/outputs. "
+                    "Agent instructions:\n" + str(agent.get("instructions") or "")
+                )
+                try:
+                    result = self.message_distributor.dispatch_message(
+                        self.user_data_dir, participant, request, mode=status["mode"],
+                        history=[{"role": "user", "content": request}],
+                        report=lambda event, _p=participant, **data: self._append_report("agent_codegen_"+event, participant=_p, agent_id=agent_id, **data),
+                    )
+                    candidates.append((participant, str(result.get("response") or "")))
+                except Exception as exc:
+                    errors.append(f"{participant}: {type(exc).__name__}: {exc}")
+            combined = "\n\n".join(f"# Candidate from {name}\n{body}" for name, body in candidates)
+            import ast
+            import re
+            blocks = re.findall(r"```(?:python)?\s*([\s\S]*?)```", combined, re.IGNORECASE)
+            code = "\n\n".join(blocks).strip() if blocks else ""
+            status_value = "candidate_unvalidated"
+            reason = "No fenced Python code returned by connected models."
+            if code:
+                try:
+                    tree = ast.parse(code)
+                    blocked_names = {"exec", "eval", "open", "compile", "__import__", "input", "globals", "locals", "getattr", "setattr", "delattr", "socket", "requests", "subprocess", "urllib", "os", "sys", "pathlib", "shutil", "pickle", "ctypes", "importlib"}
+                    found = sorted({node.name for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id in blocked_names})
+                    bad_imports = sorted({alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom)) for alias in (node.names if isinstance(node, ast.Import) else [type("Alias", (), {"name": node.module or ""})()]) if alias.name.split(".")[0] not in {"json", "math", "re", "datetime", "statistics", "collections"}})
+                    if found or bad_imports:
+                        status_value = "blocked_by_static_policy"
+                        reason = "Disallowed names/imports: " + ", ".join(found + bad_imports)
+                    else:
+                        status_value = "static_check_passed_not_executed"
+                        reason = "Python syntax and import/name checks passed. Candidate was not executed; isolated runtime tests and public release remain disabled."
+                except SyntaxError as exc:
+                    status_value = "blocked_invalid_python"
+                    reason = f"Syntax check failed at line {exc.lineno}: {exc.msg}"
+            latest = self.workspace.load_agent(agent_id) or agent
+            latest["code_candidate"] = combined[:50000]
+            latest["sandbox_status"] = status_value
+            latest["sandbox_note"] = reason
+            self.workspace.save_agent(latest)
+            self._append_report("agent_code_candidate_reviewed", agent_id=agent_id, participants=participants, candidate_count=len(candidates), error_count=len(errors), sandbox_status=status_value, sandbox_note=reason, executed=False, public_release=False, errors=errors)
+            Clock.schedule_once(lambda _dt: setattr(self.status, "text", f"Агент «{latest.get('name')}»: {status_value}. Код не исполнялся и не опубликован."), 0)
+        Thread(target=worker, name="yj64-agent-codegen", daemon=True).start()
+
+    def _open_agent_settings(self, agent_id: str) -> None:
+        agent = self.workspace.load_agent(agent_id)
+        if not agent:
+            self.status.text = "Агент не найден."
+            return
+        content = BoxLayout(orientation="vertical", spacing=8, padding=12)
+        content.add_widget(Label(text=f"{agent.get('name')}\nСостояние кода: {agent.get('sandbox_status', 'pending')}\nИсполнитель: {agent.get('runner', 'Participant 1')}", size_hint_y=None, height=76))
+        popup = Popup(title="НАСТРОЙКИ АГЕНТА", content=content, size_hint=(0.94, 0.82))
+        actions = [
+            ("ЛИЧНЫЙ ЧАТ", lambda: self._open_agent_private_chat(agent_id)),
+            ("НАСТРОИТЬ API-КЛЮЧ / МОДЕЛЬ", lambda: self._open_participant_settings(str(agent.get("runner") or "Participant 1"))),
+            ("ПОСМОТРЕТЬ КОД И РЕЗУЛЬТАТЫ ПРОВЕРКИ", lambda: self._show_agent_code(agent_id)),
+        ]
+        for runner_name in ("Participant 1", "Participant 2", "Participant 3"):
+            selected = str(agent.get("runner") or "Participant 1") == runner_name
+            runner_button = FeedbackButton(
+                text=("✓ ИСПОЛНИТЕЛЬ: " if selected else "СДЕЛАТЬ ИСПОЛНИТЕЛЕМ: ") + runner_name,
+                size_hint_y=None, height=46,
+                background_normal="",
+                background_color=(0.12, 0.43, 0.29, 1) if selected else (0.15, 0.28, 0.48, 1),
+                color=(1, 1, 1, 1),
+            )
+            def select_runner(_button: Any, name: str = runner_name) -> None:
+                current = self.workspace.load_agent(agent_id)
+                if current:
+                    current["runner"] = name
+                    self.workspace.save_agent(current)
+                    self._append_report("agent_runner_selected", agent_id=agent_id, runner=name)
+                popup.dismiss()
+                self._open_agent_settings(agent_id)
+            runner_button.bind(on_release=select_runner)
+            content.add_widget(runner_button)
+        for label, callback in actions:
+            button = FeedbackButton(text=label, size_hint_y=None, height=54)
+            button.bind(on_release=lambda _b, action=callback: (popup.dismiss(), action()))
+            content.add_widget(button)
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=48)
+        close.bind(on_release=lambda *_: popup.dismiss())
+        content.add_widget(close)
+        popup.open()
+        self._append_report("agent_settings_opened", agent_id=agent_id, runner=agent.get("runner"))
+
+    def _show_agent_code(self, agent_id: str) -> None:
+        agent = self.workspace.load_agent(agent_id)
+        if not agent:
+            return
+        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        details = Label(text=f"Статус: {agent.get('sandbox_status', 'pending')}\n{agent.get('sandbox_note', 'Проверка ещё не выполнялась.')}", size_hint_y=None, height=80)
+        code = TextInput(text=str(agent.get("code_candidate") or "Код-кандидат ещё не получен."), readonly=True, multiline=True)
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=48)
+        content.add_widget(details)
+        content.add_widget(code)
+        content.add_widget(close)
+        popup = Popup(title="КОД-КАНДИДАТ АГЕНТА", content=content, size_hint=(0.96, 0.92))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _open_agent_private_chat(self, agent_id: str) -> None:
+        agent = self.workspace.load_agent(agent_id)
+        if not agent:
+            return
+        content = BoxLayout(orientation="vertical", spacing=7, padding=10)
+        output = TextInput(readonly=True, multiline=True, size_hint_y=0.62)
+        prompt = TextInput(hint_text="Личное сообщение или инструкция агенту…", multiline=True, size_hint_y=None, height=88)
+        controls = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=52)
+        send = FeedbackButton(text="ОТПРАВИТЬ", size_hint_x=0.5)
+        run = FeedbackButton(text="ЗАПУСТИТЬ АГЕНТА", size_hint_x=0.5, background_normal="", background_color=(0.10, 0.46, 0.28, 1), color=(1, 1, 1, 1))
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=46)
+        controls.add_widget(send)
+        controls.add_widget(run)
+        content.add_widget(output)
+        content.add_widget(prompt)
+        content.add_widget(controls)
+        content.add_widget(close)
+        popup = Popup(title=f"ЛИЧНЫЙ ЧАТ: {agent.get('name')}", content=content, size_hint=(0.96, 0.92))
+        def refresh() -> None:
+            current = self.workspace.load_agent(agent_id) or agent
+            lines = []
+            for item in current.get("private_messages", []):
+                role = str(item.get("role") or "agent")
+                lines.append(f"{role}:\n{item.get('content', '')}")
+            output.text = "\n\n".join(lines) or "Личный чат агента. Здесь видны твои инструкции и сообщения моделей."
+            output.cursor = (0, 0)
+        def send_private(*_args: Any) -> None:
+            message = prompt.text.strip()
+            if not message:
+                return
+            prompt.text = ""
+            self.workspace.save_agent_message(agent_id, "owner", message)
+            self._append_report("agent_private_owner_message", agent_id=agent_id, message=message[:12000])
+            refresh()
+            self._run_agent(agent_id, owner_only=True, extra_owner_message=message, on_complete=refresh)
+        send.bind(on_release=send_private)
+        run.bind(on_release=lambda *_: self._run_agent(agent_id, owner_only=True, on_complete=refresh))
+        close.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+        refresh()
+
+    def _launch_agent_with_models(self, agent_id: str) -> None:
+        from threading import Thread
+        agent = self.workspace.load_agent(agent_id)
+        if not agent:
+            return
+        participants = list(self._chat_target_details().get("connected_participants") or [])
+        if not participants:
+            self.status.text = "Нельзя запустить агента: ни одна модель не подключена."
+            self._append_report("agent_launch_rejected", agent_id=agent_id, reason="no_connected_participants")
+            return
+        self.status.text = f"Модели готовят инструкции для агента «{agent.get('name')}»…"
+        def worker() -> None:
+            generated = []
+            for participant in participants:
+                status = self._participant_config_status(participant)
+                request = (
+                    "Write a concise private instruction message for this agent. Do not address the owner, "
+                    "do not send this message to another model, and do not claim to execute actions. "
+                    "Identify one concrete next step and relevant safety limits.\nAgent: "
+                    + str(agent.get("name") or "") + "\nOwner instructions: "
+                    + str(agent.get("instructions") or "")
+                )
+                try:
+                    result = self.message_distributor.dispatch_message(
+                        self.user_data_dir, participant, request, mode=status["mode"],
+                        history=[{"role": "user", "content": request}],
+                        report=lambda event, _p=participant, **data: self._append_report("agent_instruction_"+event, participant=_p, agent_id=agent_id, **data),
+                    )
+                    body = str(result.get("response") or "").strip()
+                    if body:
+                        self.workspace.save_agent_message(agent_id, "model: "+participant, body)
+                        generated.append((participant, body))
+                except Exception as exc:
+                    err = f"{type(exc).__name__}: {exc}"
+                    self.workspace.save_agent_message(agent_id, "model error: "+participant, err)
+                    self._append_report("agent_instruction_generation_failed", agent_id=agent_id, participant=participant, error=err)
+            if generated:
+                instruction_text = "\n\n".join(f"{name}: {body}" for name, body in generated)
+                self._run_agent(agent_id, owner_only=False, model_instructions=instruction_text)
+            else:
+                Clock.schedule_once(lambda _dt: setattr(self.status, "text", "Модели не предоставили инструкции; агент не запущен."), 0)
+        Thread(target=worker, name="yj64-agent-instruction-generation", daemon=True).start()
+
+    def _run_agent(self, agent_id: str, owner_only: bool = True, extra_owner_message: str = "", model_instructions: str = "", on_complete: Any = None) -> None:
+        from threading import Thread
+        agent = self.workspace.load_agent(agent_id)
+        if not agent:
+            return
+        runner = str(agent.get("runner") or "Participant 1")
+        status = self._participant_config_status(runner)
+        if not status.get("configured"):
+            self._append_report("agent_run_rejected", agent_id=agent_id, runner=runner, reason="runner_not_configured")
+            self.status.text = f"Модель-исполнитель {runner} не настроена. Открой настройки агента."
+            if on_complete:
+                Clock.schedule_once(lambda _dt: on_complete(), 0)
+            return
+        owner_messages = [str(item.get("content") or "") for item in agent.get("private_messages", []) if str(item.get("role") or "") == "owner"]
+        if extra_owner_message and (not owner_messages or owner_messages[-1] != extra_owner_message):
+            owner_messages.append(extra_owner_message)
+        task_parts = [
+            "YJ-64 PROMPT-DRIVEN AGENT. Treat the owner's instructions as the task. "
+            "Do not claim code execution, network access, publication, or external actions unless a separately verified tool actually performed them. "
+            "If a request appears dangerous or irreversible, stop and ask the owner.\nAgent name: " + str(agent.get("name") or ""),
+            "Base instructions:\n" + str(agent.get("instructions") or ""),
+            "Owner's private instructions (authoritative):\n" + "\n\n".join(owner_messages),
+        ]
+        if not owner_only and model_instructions:
+            task_parts.append("Model-provided instruction notes (visible in private chat):\n" + model_instructions)
+        task = "\n\n".join(part for part in task_parts if part.strip())
+        self._append_report("agent_run_started", agent_id=agent_id, runner=runner, owner_only=owner_only, model_instructions_included=bool(not owner_only and model_instructions), code_executed=False, public_release=False)
+        self.status.text = f"Агент «{agent.get('name')}» выполняет запрос через {runner}…"
+        def worker() -> None:
+            try:
+                result = self.message_distributor.dispatch_message(
+                    self.user_data_dir, runner, task, mode=status["mode"],
+                    history=[{"role": "user", "content": task}],
+                    report=lambda event, **data: self._append_report("agent_run_"+event, agent_id=agent_id, runner=runner, **data),
+                )
+                response = str(result.get("response") or "").strip()
+                if not response:
+                    raise RuntimeError("Пустой ответ агента")
+                self.workspace.save_agent_message(agent_id, "agent", response)
+                self._append_report("agent_run_completed", agent_id=agent_id, runner=runner, response=response, code_executed=False, public_release=False)
+                message = f"Агент «{agent.get('name')}» завершил ответ."
+            except Exception as exc:
+                response = f"{type(exc).__name__}: {exc}"
+                self.workspace.save_agent_message(agent_id, "agent error", response)
+                self._append_report("agent_run_failed", agent_id=agent_id, runner=runner, error=response)
+                message = f"Агент «{agent.get('name')}» завершился с ошибкой."
+            def finish(_dt: float) -> None:
+                self.status.text = message
+                if on_complete:
+                    on_complete()
+            Clock.schedule_once(finish, 0)
+        Thread(target=worker, name="yj64-agent-run", daemon=True).start()
 
     def _start_agent_implementation(self, *_: Any) -> None:
         target_details = self._chat_target_details()
@@ -2043,11 +2357,21 @@ class YJ64BaseApp(App):
                     if round_limit and round_number > round_limit: break
                     rounds_completed = round_number
                     self._append_report("llm_chat_round_started", round_number=round_number, history_count=len(self.common_history))
+                    round_successful = 0
+                    round_failed = 0
                     for target in targets:
                         if stop_event.is_set() or not self.message_distributor.dialogue_enabled: break
                         name = target["participant"]
                         turn_prompt = request_prompt if round_number == 1 else "Continue the common dialogue. Consider the owner's original request and all previous participants' replies in the conversation history. Add your next contribution without repeating the entire conversation."
-                        history_snapshot = [dict(item) for item in self.common_history]
+                        # Never echo this participant's own earlier answer back to it.
+                        history_snapshot = [
+                            dict(item) for item in self.common_history
+                            if not (
+                                str(item.get("role") or "").lower() == "assistant"
+                                and str(item.get("content") or "").startswith((name + ": ", name + " ERROR:"))
+                            )
+                        ]
+                        own_replies_excluded = len(self.common_history) - len(history_snapshot)
                         # Mistral Agent/Conversations requires the final input item to be a user message.
                         # The shared transcript often ends with the previous participant's assistant reply;
                         # add this participant's continuation prompt to a per-request copy only.
@@ -2058,7 +2382,7 @@ class YJ64BaseApp(App):
                                     history_snapshot[-1]["content"] = (last_content + "\n\n" + turn_prompt).strip()
                             else:
                                 history_snapshot.append({"role": "user", "content": turn_prompt})
-                        self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
+                        self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), own_replies_excluded=own_replies_excluded, history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
                         try:
                             result = self.message_distributor.dispatch_message(self.user_data_dir, name, turn_prompt, mode=target["mode"], history=history_snapshot, report=lambda event, _p=name, _r=round_number, **data: self._append_report("llm_chat_"+event, **{"participant":_p,"round_number":_r,**data}))
                             response = str(result.get("response") or "").strip()
@@ -2067,18 +2391,25 @@ class YJ64BaseApp(App):
                             self.common_history.append({"role":"assistant","content":f"{name}: {response}"})
                             self._save_common_history()
                             successful += 1
+                            round_successful += 1
                             self.participant_live_status[name] = True
                             self._append_report("llm_chat_participant_turn_completed", participant=name, round_number=round_number, route_id=result.get("route_id",target["route_id"]), provider=result.get("provider",target["provider"]), model=result.get("model",target["model"]), response=response, history_count=len(self.common_history))
                             Clock.schedule_once(lambda _dt, speaker=name, body=response, rn=round_number: self._append_chat_text(f"{speaker} — round {rn}:\n{body}"),0)
                         except Exception as exc:
                             failed += 1
+                            round_failed += 1
                             self.participant_live_status[name] = False
                             err=f"{type(exc).__name__}: {exc}"
                             self.common_history.append({"role":"assistant","content":f"{name} ERROR: {err}"})
                             self._save_common_history()
                             self._append_report("llm_chat_participant_turn_failed",participant=name,round_number=round_number,route_id=target["route_id"],error_type=type(exc).__name__,error=str(exc))
                             Clock.schedule_once(lambda _dt,speaker=name,body=err,rn=round_number: self._append_chat_text(f"{speaker} — round {rn} FAILED:\n{body}"),0)
-                    self._append_report("llm_chat_round_completed",round_number=round_number,successful=successful,failed=failed,stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled)
+                    self._append_report("llm_chat_round_completed",round_number=round_number,successful=round_successful,failed=round_failed,stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled)
+                    # A session ends after the first round containing any failure.
+                    # Successful replies remain visible; no participant receives its own reply.
+                    if round_failed:
+                        self._append_report("llm_chat_session_closed_after_participant_error", round_number=round_number, successful_in_round=round_successful, failed_in_round=round_failed, reason=("all_participants_failed" if round_successful == 0 else "participant_failed_after_partial_success"))
+                        break
                     if stop_event.is_set() or not self.message_distributor.dialogue_enabled: break
             finally:
                 def finish(*_args: Any) -> None:
@@ -2328,6 +2659,7 @@ Participants send a route marker and mode; provider-specific HTTP details stay h
 from __future__ import annotations
 
 import json
+import random
 import ssl
 import time
 import uuid
@@ -2366,7 +2698,7 @@ def _request(
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Perform a bounded API request with cautious transient-error retries."""
-    max_attempts = 3
+    max_attempts = 5
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -2391,16 +2723,17 @@ def _request(
             last_error = exc
             if exc.code not in {429, 503} or attempt >= max_attempts:
                 raise RuntimeError(f"HTTP {exc.code} after {attempt} attempt(s): {detail[:800]}") from exc
-            delay = min(2 ** attempt, 8)
-            if exc.code == 429:
-                retry_after = (exc.headers or {}).get("Retry-After", "").strip()
-                try:
-                    delay = max(0.0, float(retry_after))
-                except (TypeError, ValueError):
-                    pass
-                if delay > 8:
-                    raise RuntimeError(f"HTTP 429 after {attempt} attempt(s); Retry-After={retry_after or 'not supplied'}: {detail[:800]}") from exc
-            time.sleep(delay)
+            # Google recommends bounded exponential backoff for transient UNAVAILABLE
+            # responses. Honour numeric Retry-After when present, then add jitter.
+            delay = min(2 ** (attempt - 1), 16)
+            retry_after = (exc.headers or {}).get("Retry-After", "").strip()
+            try:
+                server_delay = max(0.0, float(retry_after))
+                delay = min(max(delay, server_delay), 30.0)
+            except (TypeError, ValueError):
+                pass
+            jitter = random.uniform(0.0, min(1.0, delay * 0.25))
+            time.sleep(delay + jitter)
         except URLError as exc:
             last_error = exc
             if method.upper() != "GET" or attempt >= max_attempts:
@@ -3020,7 +3353,6 @@ def test_all_routes(
     passed = sum(1 for item in results if item["status"] == "PASS")
     report_lines.extend(["", f"Summary: {passed}/{len(results)} connections passed"])
     return {"results": results, "report": "\n".join(report_lines)}
-
 END ALLOWED
 
 
@@ -3888,6 +4220,14 @@ class ChatWorkspace:
                 "Do not store API keys, passwords, access tokens, or private credentials here.\n",
                 encoding="utf-8",
             )
+        if not self.agents_path.exists():
+            self.create_agent(
+                "Коммерческий агент",
+                "Исследование и анализ коммерческих возможностей в режиме read-only. "
+                "Показывай предположения, риски, источники и проверяемые шаги. "
+                "Не трать деньги, не связывайся с людьми, не публикуй материалы и не совершай внешних действий.",
+                runner="Participant 1",
+            )
         if not self.index_path.exists():
             self._write_index([])
         if not self.list_chats():
@@ -3977,6 +4317,80 @@ class ChatWorkspace:
             json.dumps({"messages": messages}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    @property
+    def agents_path(self) -> Path:
+        return self.root / "agents.json"
+
+    def list_agents(self) -> list[dict[str, Any]]:
+        try:
+            raw = json.loads(self.agents_path.read_text(encoding="utf-8"))
+            agents = raw.get("agents", []) if isinstance(raw, dict) else []
+            return [item for item in agents if isinstance(item, dict) and item.get("id")]
+        except (OSError, ValueError):
+            return []
+
+    def load_agent(self, agent_id: str) -> dict[str, Any] | None:
+        return next((item for item in self.list_agents() if item.get("id") == agent_id), None)
+
+    def save_agent(self, agent: dict[str, Any]) -> None:
+        """Persist a prompt-driven agent definition and its reviewable code candidate."""
+        agents = self.list_agents()
+        value = dict(agent)
+        value["id"] = str(value.get("id") or uuid.uuid4().hex)
+        value["name"] = str(value.get("name") or "Новый агент")[:100]
+        value["instructions"] = str(value.get("instructions") or "")[:20000]
+        value["code_candidate"] = str(value.get("code_candidate") or "")[:50000]
+        value["private_messages"] = [
+            {"role": str(message.get("role", "owner")),
+             "content": str(message.get("content", ""))[:20000]}
+            for message in value.get("private_messages", [])
+            if isinstance(message, dict)
+        ][-300:]
+        replaced = False
+        for index, current in enumerate(agents):
+            if current.get("id") == value["id"]:
+                agents[index] = value
+                replaced = True
+                break
+        if not replaced:
+            agents.append(value)
+        self.agents_path.parent.mkdir(parents=True, exist_ok=True)
+        self.agents_path.write_text(
+            json.dumps({"schema": "yj64.agents.v1", "agents": agents},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def create_agent(
+        self, name: str, instructions: str, runner: str = "Participant 1"
+    ) -> dict[str, Any]:
+        value = {
+            "id": uuid.uuid4().hex,
+            "name": (name.strip() or "Новый агент")[:100],
+            "instructions": instructions.strip()[:20000],
+            "runner": runner,
+            "code_candidate": "",
+            "sandbox_status": "pending",
+            "private_messages": [],
+            "created_ms": int(time.time() * 1000),
+        }
+        self.save_agent(value)
+        return value
+
+    def save_agent_message(self, agent_id: str, role: str, content: str) -> dict[str, Any] | None:
+        agent = self.load_agent(agent_id)
+        if agent is None:
+            return None
+        messages = list(agent.get("private_messages", []))
+        messages.append({
+            "role": str(role)[:40],
+            "content": str(content)[:20000],
+            "timestamp_ms": int(time.time() * 1000),
+        })
+        agent["private_messages"] = messages[-300:]
+        self.save_agent(agent)
+        return agent
 
     def read_skills(self) -> str:
         return self.skills_path.read_text(encoding="utf-8")
@@ -4948,8 +5362,8 @@ class CalibrationGround:
         return tuple(self._records)
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=809ae2f50b524d9b0ac4b0c71e1210af8821a9de
-EXPECTED-GIT-BLOB-SHA:llm_api.py=220d76677ea7e3435eae7d31dbba6e3b1a7394fb
+EXPECTED-GIT-BLOB-SHA:main.py=d58180b74d49e13e62f4d7859c4dcbeca0ae3df5
+EXPECTED-GIT-BLOB-SHA:llm_api.py=739f043bfe8eeea8a8994bc098c793c839ca00bd
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
@@ -4957,7 +5371,7 @@ EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=ab183536c70363a913b128b249a49b596357b6dd
 EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=1d78238bbc6441b4ba470a8cb1826f2a20b8eafd
 EXPECTED-GIT-BLOB-SHA:buildozer.spec=b7ca2d8e901927d12f9df5db51476961043cb6db
-EXPECTED-GIT-BLOB-SHA:chat_workspace.py=7612d2ecccba37146a3aeb4db620a00732aaffe4
+EXPECTED-GIT-BLOB-SHA:chat_workspace.py=8a8e9ffaf5f5694c0f7bcdfce5054e43f649864d
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=3edb338deb5f8d3cc8a409cb6a07b757a5dab49b
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
 EXPECTED-GIT-BLOB-SHA:chatgpt_bridge.py=ffb962f4e37dd37f472a6ec85c8932a1de0051ea
