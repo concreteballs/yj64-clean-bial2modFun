@@ -156,6 +156,7 @@ class AuditTrail:
         record.previous_record_hash = self._records[-1].record_hash if self._records else "GENESIS"
         record.record_hash = ""
         payload = asdict(record)
+        payload.pop("record_hash", None)
         record.record_hash = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
         self._records.append(record)
         return record
