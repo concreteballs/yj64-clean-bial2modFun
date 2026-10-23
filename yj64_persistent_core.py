@@ -145,7 +145,7 @@ class PersistentCore:
                     archive.write(self.summary_path, SUMMARY_NAME)
                 archive.writestr(
                     "manifest.json",
-                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000}),
+                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000)},
                                ensure_ascii=False),
                 )
         finally:
