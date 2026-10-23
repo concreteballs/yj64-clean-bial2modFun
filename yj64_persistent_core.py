@@ -6,6 +6,8 @@ summary lives beside the database. API credentials must never be stored here.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 import time
 import uuid
@@ -133,9 +135,11 @@ class PersistentCore:
         return [dict(row) for row in rows]
 
     def export_archive(self, destination: str | Path) -> str:
+        """Export SQLite plus chat workspace into one portable, path-safe ZIP."""
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temp_db = self.root / ("export-" + uuid.uuid4().hex + ".sqlite3")
+        workspace = self.root / "yj64-workspace"
         try:
             with self._connect() as source, sqlite3.connect(str(temp_db)) as target:
                 source.backup(target)
@@ -143,9 +147,14 @@ class PersistentCore:
                 archive.write(temp_db, DB_NAME)
                 if self.summary_path.exists():
                     archive.write(self.summary_path, SUMMARY_NAME)
+                if workspace.is_dir():
+                    for item in sorted(workspace.rglob("*")):
+                        if item.is_file():
+                            archive.write(item, (Path("workspace") / item.relative_to(workspace)).as_posix())
                 archive.writestr(
                     "manifest.json",
-                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000)},
+                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000),
+                                "includes_workspace": workspace.is_dir()},
                                ensure_ascii=False),
                 )
         finally:
@@ -156,26 +165,61 @@ class PersistentCore:
         return str(destination)
 
     def import_archive(self, source: str | Path) -> int:
-        with zipfile.ZipFile(source, "r") as archive:
-            names = set(archive.namelist())
-            if "manifest.json" not in names or DB_NAME not in names:
-                raise ValueError("Archive is missing the YJ-64 manifest or SQLite database")
-            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
-            if manifest.get("schema") != SCHEMA:
-                raise ValueError("Unsupported YJ-64 archive schema")
-            temp_db = self.root / ("import-" + uuid.uuid4().hex + ".sqlite3")
-            temp_db.write_bytes(archive.read(DB_NAME))
-            try:
+        """Validate the archive before replacing the local database/workspace."""
+        staging = self.root / ("restore-" + uuid.uuid4().hex)
+        temp_db = self.root / ("import-" + uuid.uuid4().hex + ".sqlite3")
+        staging.mkdir(parents=True, exist_ok=False)
+        try:
+            with zipfile.ZipFile(source, "r") as archive:
+                names = set(archive.namelist())
+                if "manifest.json" not in names or DB_NAME not in names:
+                    raise ValueError("Archive is missing the YJ-64 manifest or SQLite database")
+                manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                if manifest.get("schema") != SCHEMA:
+                    raise ValueError("Unsupported YJ-64 archive schema")
+                # Only accept known top-level entries and reject traversal paths.
+                allowed = {"manifest.json", DB_NAME, SUMMARY_NAME}
+                for name in names:
+                    if name in allowed:
+                        continue
+                    path = Path(name)
+                    if path.is_absolute() or ".." in path.parts or path.parts[0] != "workspace":
+                        raise ValueError("Archive contains an unsafe path")
+                temp_db.write_bytes(archive.read(DB_NAME))
                 with sqlite3.connect(str(temp_db)) as imported:
                     count = int(imported.execute("SELECT COUNT(*) FROM events").fetchone()[0])
                     imported.execute("SELECT key FROM state LIMIT 1").fetchall()
-                with self._connect() as target, sqlite3.connect(str(temp_db)) as source_db:
-                    source_db.backup(target)
+                    imported.execute("SELECT task_id FROM tasks LIMIT 1").fetchall()
+                if "workspace" in {Path(name).parts[0] for name in names if name}:
+                    for name in names:
+                        if name.startswith("workspace/") and not name.endswith("/"):
+                            relative = Path(name).relative_to("workspace")
+                            target = staging / "workspace" / relative
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_bytes(archive.read(name))
                 if SUMMARY_NAME in names:
-                    self.summary_path.write_bytes(archive.read(SUMMARY_NAME))
-                return count
-            finally:
+                    (staging / SUMMARY_NAME).write_bytes(archive.read(SUMMARY_NAME))
+            with self._connect() as target, sqlite3.connect(str(temp_db)) as source_db:
+                source_db.backup(target)
+            if (staging / SUMMARY_NAME).exists():
+                self.summary_path.write_bytes((staging / SUMMARY_NAME).read_bytes())
+            staged_workspace = staging / "workspace"
+            if staged_workspace.is_dir():
+                live_workspace = self.root / "yj64-workspace"
+                old_workspace = self.root / ("workspace-old-" + uuid.uuid4().hex)
+                if live_workspace.exists():
+                    os.replace(live_workspace, old_workspace)
                 try:
-                    temp_db.unlink()
-                except OSError:
-                    pass
+                    os.replace(staged_workspace, live_workspace)
+                except Exception:
+                    if old_workspace.exists() and not live_workspace.exists():
+                        os.replace(old_workspace, live_workspace)
+                    raise
+                shutil.rmtree(old_workspace, ignore_errors=True)
+            return count
+        finally:
+            try:
+                temp_db.unlink()
+            except OSError:
+                pass
+            shutil.rmtree(staging, ignore_errors=True)
