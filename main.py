@@ -1034,7 +1034,7 @@ class YJ64BaseApp(App):
                     "perform network, filesystem, subprocess, shell, payment, credential, publication, or "
                     "self-modification actions. Do not include imports except json, math, re, datetime, "
                     "statistics, or collections. Provide pure functions with explicit inputs/outputs. "
-                    "Agent instructions:\\n" + str(agent.get("instructions") or "")
+                    "Agent instructions:\n" + str(agent.get("instructions") or "")
                 )
                 try:
                     result = self.message_distributor.dispatch_message(
@@ -1045,11 +1045,11 @@ class YJ64BaseApp(App):
                     candidates.append((participant, str(result.get("response") or "")))
                 except Exception as exc:
                     errors.append(f"{participant}: {type(exc).__name__}: {exc}")
-            combined = "\\n\\n".join(f"# Candidate from {name}\\n{body}" for name, body in candidates)
+            combined = "\n\n".join(f"# Candidate from {name}\n{body}" for name, body in candidates)
             import ast
             import re
-            blocks = re.findall(r"```(?:python)?\\s*([\\s\\S]*?)```", combined, re.IGNORECASE)
-            code = "\\n\\n".join(blocks).strip() if blocks else ""
+            blocks = re.findall(r"```(?:python)?\s*([\s\S]*?)```", combined, re.IGNORECASE)
+            code = "\n\n".join(blocks).strip() if blocks else ""
             status_value = "candidate_unvalidated"
             reason = "No fenced Python code returned by connected models."
             if code:
@@ -1082,7 +1082,7 @@ class YJ64BaseApp(App):
             self.status.text = "Агент не найден."
             return
         content = BoxLayout(orientation="vertical", spacing=8, padding=12)
-        content.add_widget(Label(text=f"{agent.get('name')}\\nСостояние кода: {agent.get('sandbox_status', 'pending')}\\nИсполнитель: {agent.get('runner', 'Participant 1')}", size_hint_y=None, height=76))
+        content.add_widget(Label(text=f"{agent.get('name')}\nСостояние кода: {agent.get('sandbox_status', 'pending')}\nИсполнитель: {agent.get('runner', 'Participant 1')}", size_hint_y=None, height=76))
         popup = Popup(title="НАСТРОЙКИ АГЕНТА", content=content, size_hint=(0.94, 0.82))
         actions = [
             ("ЛИЧНЫЙ ЧАТ", lambda: self._open_agent_private_chat(agent_id)),
@@ -1104,7 +1104,7 @@ class YJ64BaseApp(App):
         if not agent:
             return
         content = BoxLayout(orientation="vertical", spacing=8, padding=10)
-        details = Label(text=f"Статус: {agent.get('sandbox_status', 'pending')}\\n{agent.get('sandbox_note', 'Проверка ещё не выполнялась.')}", size_hint_y=None, height=80)
+        details = Label(text=f"Статус: {agent.get('sandbox_status', 'pending')}\n{agent.get('sandbox_note', 'Проверка ещё не выполнялась.')}", size_hint_y=None, height=80)
         code = TextInput(text=str(agent.get("code_candidate") or "Код-кандидат ещё не получен."), readonly=True, multiline=True)
         close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=48)
         content.add_widget(details)
@@ -1137,8 +1137,8 @@ class YJ64BaseApp(App):
             lines = []
             for item in current.get("private_messages", []):
                 role = str(item.get("role") or "agent")
-                lines.append(f"{role}:\\n{item.get('content', '')}")
-            output.text = "\\n\\n".join(lines) or "Личный чат агента. Здесь видны твои инструкции и сообщения моделей."
+                lines.append(f"{role}:\n{item.get('content', '')}")
+            output.text = "\n\n".join(lines) or "Личный чат агента. Здесь видны твои инструкции и сообщения моделей."
             output.cursor = (0, 0)
         def send_private(*_args: Any) -> None:
             message = prompt.text.strip()
@@ -1173,8 +1173,8 @@ class YJ64BaseApp(App):
                 request = (
                     "Write a concise private instruction message for this agent. Do not address the owner, "
                     "do not send this message to another model, and do not claim to execute actions. "
-                    "Identify one concrete next step and relevant safety limits.\\nAgent: "
-                    + str(agent.get("name") or "") + "\\nOwner instructions: "
+                    "Identify one concrete next step and relevant safety limits.\nAgent: "
+                    + str(agent.get("name") or "") + "\nOwner instructions: "
                     + str(agent.get("instructions") or "")
                 )
                 try:
@@ -1192,7 +1192,7 @@ class YJ64BaseApp(App):
                     self.workspace.save_agent_message(agent_id, "model error: "+participant, err)
                     self._append_report("agent_instruction_generation_failed", agent_id=agent_id, participant=participant, error=err)
             if generated:
-                instruction_text = "\\n\\n".join(f"{name}: {body}" for name, body in generated)
+                instruction_text = "\n\n".join(f"{name}: {body}" for name, body in generated)
                 self._run_agent(agent_id, owner_only=False, model_instructions=instruction_text)
             else:
                 Clock.schedule_once(lambda _dt: setattr(self.status, "text", "Модели не предоставили инструкции; агент не запущен."), 0)
@@ -1218,12 +1218,12 @@ class YJ64BaseApp(App):
             "YJ-64 PROMPT-DRIVEN AGENT. Treat the owner's instructions as the task. "
             "Do not claim code execution, network access, publication, or external actions unless a separately verified tool actually performed them. "
             "If a request appears dangerous or irreversible, stop and ask the owner.\nAgent name: " + str(agent.get("name") or ""),
-            "Base instructions:\\n" + str(agent.get("instructions") or ""),
-            "Owner's private instructions (authoritative):\\n" + "\\n\\n".join(owner_messages),
+            "Base instructions:\n" + str(agent.get("instructions") or ""),
+            "Owner's private instructions (authoritative):\n" + "\n\n".join(owner_messages),
         ]
         if not owner_only and model_instructions:
-            task_parts.append("Model-provided instruction notes (visible in private chat):\\n" + model_instructions)
-        task = "\\n\\n".join(part for part in task_parts if part.strip())
+            task_parts.append("Model-provided instruction notes (visible in private chat):\n" + model_instructions)
+        task = "\n\n".join(part for part in task_parts if part.strip())
         self._append_report("agent_run_started", agent_id=agent_id, runner=runner, owner_only=owner_only, model_instructions_included=bool(not owner_only and model_instructions), code_executed=False, public_release=False)
         self.status.text = f"Агент «{agent.get('name')}» выполняет запрос через {runner}…"
         def worker() -> None:
