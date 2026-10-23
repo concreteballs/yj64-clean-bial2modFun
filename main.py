@@ -77,7 +77,7 @@ class ChatTranscript(BoxLayout):
             right_aligned = owner or role == "Participant 2"
             colors = {"Participant 1": (0.04,0.32,0.66,1), "Participant 2": (0.42,0.16,0.56,1), "Participant 3": (0.04,0.43,0.29,1)}
             color = (0.56,0.31,0.04,1) if owner else colors.get(role, (0.18,0.23,0.34,1))
-            body_height = max(72, min(360, (len(body.splitlines()) + max(1, len(body)//48))*18 + 8))
+            body_height = max(72, min(420, (len(body.splitlines()) + max(1, len(body)//48))*18 + 8))
             row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=body_height + 80)
             if not right_aligned:
                 row.add_widget(Label(text="", size_hint_x=0.08))
@@ -86,7 +86,7 @@ class ChatTranscript(BoxLayout):
             title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
-            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1), do_scroll_x=False, scroll_type=["bars", "content"], bar_width=4)
+            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1), do_scroll_x=False, do_scroll_y=True, scroll_type=["bars", "content"], bar_width=5, bar_color=(0.86,0.91,1,0.95), bar_inactive_color=(0.72,0.80,0.93,0.45))
             bubble.add_widget(message)
             copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
@@ -2270,7 +2270,8 @@ class YJ64BaseApp(App):
 
     def _send_llm_chat(self, *_: Any) -> None:
         prompt = self.chat_input.text.strip()
-        if not prompt: return
+        if not prompt:
+            return
         if not self.message_distributor.dialogue_enabled:
             self._append_report("llm_chat_send_rejected", reason="dialogue_stopped", prompt=prompt)
             self.status.text = "Dialogue is stopped. Resume it before sending new LLM requests."
@@ -2280,105 +2281,213 @@ class YJ64BaseApp(App):
             return
         target_details = self._chat_target_details()
         participants = list(target_details["connected_participants"])
-        if not participants and target_details["owner_connected"]: participants = ["Owner"]
+        if not participants and target_details["owner_connected"]:
+            participants = ["Owner"]
         if not participants:
             self._append_report("llm_chat_send_rejected", reason="no_configured_connections", prompt=prompt)
             self._append_chat_text(f"Owner: {prompt}\nNo configured participant connections are available.")
             self.status.text = "No configured participant connections are available."
             self.chat_input.text = ""
             return
+
         implementation_request = prompt.startswith("IMPLEMENTATION PHASE.")
         request_prompt = self._practical_instructions(prompt, implementation=implementation_request)
         targets = []
         for name in participants:
             details = self._participant_config_status(name)
-            targets.append({"participant":name,"route_id":str(details["route_id"]),"mode":str(details["mode"]),"provider":str(details["provider"]),"model":str(details["model"])})
+            targets.append({
+                "participant": name,
+                "route_id": str(details["route_id"]),
+                "mode": str(details["mode"]),
+                "provider": str(details["provider"]),
+                "model": str(details["model"]),
+            })
+
         round_limit = self.dialogue_round_limit
         from threading import Event, Thread
         stop_event = Event()
         self.dialogue_stop_event = stop_event
         self.dialogue_worker_active = True
         self.chat_input.text = ""
-        self.common_history.append({"role":"user","content":prompt})
+        self.common_history.append({"role": "user", "content": prompt})
         self._save_common_history()
         self.chat_output.text = self._render_history()
-        self._append_report("llm_chat_dialogue_started", prompt=prompt, participants=participants, round_limit=round_limit, unlimited=round_limit == 0, history_count=len(self.common_history))
+        self._append_report(
+            "llm_chat_dialogue_started",
+            prompt=prompt,
+            participants=participants,
+            round_limit=round_limit,
+            unlimited=round_limit == 0,
+            history_count=len(self.common_history),
+            policy="collect_all_participant_results_then_close_if_any_participant_failed",
+        )
         self.status.text = "Sequential dialogue started: " + ", ".join(participants)
+
         def run_chat() -> None:
             successful = failed = rounds_completed = 0
+            stop_reason = "round_limit_reached"
             try:
                 round_number = 0
                 while not stop_event.is_set() and self.message_distributor.dialogue_enabled:
                     round_number += 1
-                    if round_limit and round_number > round_limit: break
+                    if round_limit and round_number > round_limit:
+                        break
                     rounds_completed = round_number
-                    self._append_report("llm_chat_round_started", round_number=round_number, history_count=len(self.common_history))
-                    round_successful = 0
-                    round_failed = 0
+                    successful_this_round = 0
+                    failed_this_round = 0
+                    self._append_report(
+                        "llm_chat_round_started",
+                        round_number=round_number,
+                        history_count=len(self.common_history),
+                    )
+
+                    # Attempt every configured participant before deciding whether the
+                    # session can continue. One provider failure must not suppress others.
                     for target in targets:
-                        if stop_event.is_set() or not self.message_distributor.dialogue_enabled: break
+                        if stop_event.is_set() or not self.message_distributor.dialogue_enabled:
+                            stop_reason = "owner_stopped"
+                            break
                         name = target["participant"]
-                        turn_prompt = request_prompt if round_number == 1 else "Continue the common dialogue. Consider the owner's original request and all previous participants' replies in the conversation history. Add your next contribution without repeating the entire conversation."
-                        # Never echo this participant's own earlier answer back to it.
-                        history_snapshot = [
-                            dict(item) for item in self.common_history
-                            if not (
-                                str(item.get("role") or "").lower() == "assistant"
-                                and str(item.get("content") or "").startswith((name + ": ", name + " ERROR:"))
-                            )
-                        ]
-                        own_replies_excluded = len(self.common_history) - len(history_snapshot)
-                        # Mistral Agent/Conversations requires the final input item to be a user message.
-                        # The shared transcript often ends with the previous participant's assistant reply;
-                        # add this participant's continuation prompt to a per-request copy only.
+                        turn_prompt = (
+                            request_prompt if round_number == 1 else
+                            "Continue the common dialogue. Consider the owner's original request and replies from other participants. "
+                            "Add your next contribution without repeating the whole conversation."
+                        )
+
+                        # Exclude the target participant's own prior answers from its context.
+                        history_snapshot = []
+                        for item in self.common_history:
+                            content = str(item.get("content") or "")
+                            if item.get("role") == "assistant" and content.startswith(name + ":"):
+                                continue
+                            history_snapshot.append(dict(item))
+
+                        # Agent/Conversations endpoints require the final input item to be
+                        # a user message. This request-only copy does not mutate shared history.
                         if target["mode"] == "agent":
                             if history_snapshot and str(history_snapshot[-1].get("role") or "").lower() == "user":
                                 last_content = str(history_snapshot[-1].get("content") or "")
-                                if last_content != turn_prompt:
+                                if turn_prompt not in last_content:
                                     history_snapshot[-1]["content"] = (last_content + "\n\n" + turn_prompt).strip()
                             else:
                                 history_snapshot.append({"role": "user", "content": turn_prompt})
-                        self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), own_replies_excluded=own_replies_excluded, history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
+
+                        self._append_report(
+                            "llm_chat_participant_turn_started",
+                            participant=name,
+                            round_number=round_number,
+                            route_id=target["route_id"],
+                            provider=target["provider"],
+                            model=target["model"],
+                            history_count=len(history_snapshot),
+                            own_previous_answers_excluded=True,
+                        )
                         try:
-                            result = self.message_distributor.dispatch_message(self.user_data_dir, name, turn_prompt, mode=target["mode"], history=history_snapshot, report=lambda event, _p=name, _r=round_number, **data: self._append_report("llm_chat_"+event, **{"participant":_p,"round_number":_r,**data}))
+                            result = self.message_distributor.dispatch_message(
+                                self.user_data_dir,
+                                name,
+                                turn_prompt,
+                                mode=target["mode"],
+                                history=history_snapshot,
+                                report=lambda event, _p=name, _r=round_number, **data:
+                                    self._append_report("llm_chat_" + event, **{"participant": _p, "round_number": _r, **data}),
+                            )
                             response = str(result.get("response") or "").strip()
                             if not response:
                                 raise RuntimeError("Provider returned an empty response; turn marked as failed.")
-                            self.common_history.append({"role":"assistant","content":f"{name}: {response}"})
+                            self.common_history.append({"role": "assistant", "content": f"{name}: {response}"})
                             self._save_common_history()
                             successful += 1
-                            round_successful += 1
+                            successful_this_round += 1
                             self.participant_live_status[name] = True
-                            self._append_report("llm_chat_participant_turn_completed", participant=name, round_number=round_number, route_id=result.get("route_id",target["route_id"]), provider=result.get("provider",target["provider"]), model=result.get("model",target["model"]), response=response, history_count=len(self.common_history))
-                            Clock.schedule_once(lambda _dt, speaker=name, body=response, rn=round_number: self._append_chat_text(f"{speaker} — round {rn}:\n{body}"),0)
+                            self._append_report(
+                                "llm_chat_participant_turn_completed",
+                                participant=name,
+                                round_number=round_number,
+                                route_id=result.get("route_id", target["route_id"]),
+                                provider=result.get("provider", target["provider"]),
+                                model=result.get("model", target["model"]),
+                                response=response,
+                                history_count=len(self.common_history),
+                            )
+                            Clock.schedule_once(
+                                lambda _dt, speaker=name, body=response, rn=round_number:
+                                    self._append_chat_text(f"{speaker}: {body}"),
+                                0,
+                            )
                         except Exception as exc:
                             failed += 1
-                            round_failed += 1
+                            failed_this_round += 1
                             self.participant_live_status[name] = False
-                            err=f"{type(exc).__name__}: {exc}"
-                            self.common_history.append({"role":"assistant","content":f"{name} ERROR: {err}"})
+                            err = f"{type(exc).__name__}: {exc}"
+                            self.common_history.append({"role": "assistant", "content": f"{name}: ERROR: {err}"})
                             self._save_common_history()
-                            self._append_report("llm_chat_participant_turn_failed",participant=name,round_number=round_number,route_id=target["route_id"],error_type=type(exc).__name__,error=str(exc))
-                            Clock.schedule_once(lambda _dt,speaker=name,body=err,rn=round_number: self._append_chat_text(f"{speaker} — round {rn} FAILED:\n{body}"),0)
-                    self._append_report("llm_chat_round_completed",round_number=round_number,successful=round_successful,failed=round_failed,stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled)
-                    # A session ends after the first round containing any failure.
-                    # Successful replies remain visible; no participant receives its own reply.
-                    if round_failed:
-                        self._append_report("llm_chat_session_closed_after_participant_error", round_number=round_number, successful_in_round=round_successful, failed_in_round=round_failed, reason=("all_participants_failed" if round_successful == 0 else "participant_failed_after_partial_success"))
+                            self._append_report(
+                                "llm_chat_participant_turn_failed",
+                                participant=name,
+                                round_number=round_number,
+                                route_id=target["route_id"],
+                                provider=target["provider"],
+                                model=target["model"],
+                                error_type=type(exc).__name__,
+                                error=str(exc),
+                            )
+                            Clock.schedule_once(
+                                lambda _dt, speaker=name, body=err, rn=round_number:
+                                    self._append_chat_text(f"{speaker}: ERROR — round {rn}:\n{body}"),
+                                0,
+                            )
+
+                    self._append_report(
+                        "llm_chat_round_completed",
+                        round_number=round_number,
+                        successful=successful_this_round,
+                        failed=failed_this_round,
+                        stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled,
+                    )
+                    if stop_event.is_set() or not self.message_distributor.dialogue_enabled:
+                        stop_reason = "owner_stopped"
                         break
-                    if stop_event.is_set() or not self.message_distributor.dialogue_enabled: break
+                    if successful_this_round == 0:
+                        stop_reason = "all_participants_failed"
+                        self._append_report("llm_chat_session_closed", reason=stop_reason, round_number=round_number)
+                        break
+                    if failed_this_round:
+                        stop_reason = "participant_unavailable_after_retries"
+                        self._append_report(
+                            "llm_chat_session_closed",
+                            reason=stop_reason,
+                            round_number=round_number,
+                            successful_this_round=successful_this_round,
+                            failed_this_round=failed_this_round,
+                        )
+                        break
+                else:
+                    if stop_event.is_set() or not self.message_distributor.dialogue_enabled:
+                        stop_reason = "owner_stopped"
             finally:
                 def finish(*_args: Any) -> None:
-                    self.dialogue_worker_active=False
-                    self.dialogue_stop_event=None
+                    self.dialogue_worker_active = False
+                    self.dialogue_stop_event = None
                     self._save_common_history()
-                    self.chat_output.text=self._render_history()
-                    stopped=stop_event.is_set() or not self.message_distributor.dialogue_enabled
-                    self._append_report("llm_chat_dialogue_completed",rounds_completed=rounds_completed,successful_turns=successful,failed_turns=failed,stopped=stopped,round_limit=round_limit)
-                    self.status.text=f"Dialogue {'stopped' if stopped else 'completed'} after {rounds_completed} round(s): {successful} replies, {failed} errors."
-                Clock.schedule_once(finish,0)
-        Thread(target=run_chat,name="yj64-sequential-dialogue",daemon=True).start()
+                    self.chat_output.text = self._render_history()
+                    stopped = stop_event.is_set() or not self.message_distributor.dialogue_enabled
+                    self._append_report(
+                        "llm_chat_dialogue_completed",
+                        rounds_completed=rounds_completed,
+                        successful_turns=successful,
+                        failed_turns=failed,
+                        stopped=stopped,
+                        stop_reason=stop_reason,
+                        round_limit=round_limit,
+                    )
+                    self.status.text = (
+                        f"Dialogue {'stopped' if stopped else 'completed'} after {rounds_completed} round(s): "
+                        f"{successful} replies, {failed} errors. Reason: {stop_reason}."
+                    )
+                Clock.schedule_once(finish, 0)
 
+        Thread(target=run_chat, name="yj64-sequential-dialogue", daemon=True).start()
     def _copy_to_clipboard(self, text: str) -> None:
         try:
             from jnius import autoclass
