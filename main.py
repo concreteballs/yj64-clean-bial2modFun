@@ -228,6 +228,7 @@ class YJ64BaseApp(App):
             background_color=(0.72, 0.19, 0.22, 1),
             color=(1, 1, 1, 1),
         )
+        self.stop_discussion_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-16), max(1, value[1]-8))))
         root.add_widget(self.stop_discussion_button)
 
         action_grid = GridLayout(cols=2, spacing=6, size_hint_y=None, row_default_height=62, row_force_default=True)
@@ -263,8 +264,11 @@ class YJ64BaseApp(App):
         self.chat_nav_row.add_widget(self.new_chat_button)
         self.chat_nav_row.add_widget(self.chat_top_button)
         self.chat_nav_row.add_widget(self.chat_bottom_button)
+        for nav_button in (self.chats_button, self.new_chat_button, self.chat_top_button, self.chat_bottom_button):
+            nav_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-8), max(1, value[1]-6))))
         root.add_widget(self.chat_nav_row)
         self.chat_heading = Label(text=self._t(1), size_hint_y=None, height=27, color=(0.61,0.76,0.96,1), bold=True, halign="left", valign="middle", font_size="12sp")
+        self.chat_heading.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-8), max(1, value[1]-4))))
         root.add_widget(self.chat_heading)
         chat_area = BoxLayout(orientation="horizontal", spacing=6)
         self.chat_scroll = ScrollView(size_hint_x=1, do_scroll_x=False, do_scroll_y=True, bar_width=8, scroll_type=["bars","content"], bar_color=(0.36,0.66,1,1), bar_inactive_color=(0.28,0.53,0.85,0.45))
@@ -296,6 +300,7 @@ class YJ64BaseApp(App):
 
         self.chat_send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=44)
         self.chat_send_button = FeedbackButton(text=self._t(4), size_hint_x=1, size_hint_y=None, height=42, background_normal="", background_down="", background_color=(0.12,0.39,0.68,1), color=(1,1,1,1), font_size="13sp", bold=True)
+        self.chat_send_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-12), max(1, value[1]-8))))
         self.chat_send_button.bind(on_release=self._send_llm_chat)
         self.chat_send_row.add_widget(self.chat_send_button)
         root.add_widget(self.chat_send_row)
@@ -784,7 +789,10 @@ class YJ64BaseApp(App):
                 on_event=self._remote_participant_event
             )
 
-        content = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        content = BoxLayout(orientation="vertical", spacing=6, padding=(8, 6))
+        details_scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True, bar_width=5, scroll_type=["bars", "content"])
+        details_content = BoxLayout(orientation="vertical", size_hint_y=None, spacing=7, padding=(2, 2))
+        details_content.bind(minimum_height=details_content.setter("height"))
         form = GridLayout(cols=1, spacing=7, size_hint_y=None)
         form.bind(minimum_height=form.setter("height"))
         form_title = Label(
@@ -809,7 +817,7 @@ class YJ64BaseApp(App):
         form.add_widget(self.remote_url_input)
         form.add_widget(self.remote_name_input)
         form.add_widget(self.remote_token_input)
-        content.add_widget(form)
+        details_content.add_widget(form)
 
         self.remote_connection_status = Label(
             text="Не подключено. Введите адрес сервера и токен.",
@@ -819,14 +827,14 @@ class YJ64BaseApp(App):
         self.remote_connection_status.bind(
             size=lambda w, value: setattr(w, "text_size", (max(1, value[0]-8), max(1, value[1]-8)))
         )
-        content.add_widget(self.remote_connection_status)
+        details_content.add_widget(self.remote_connection_status)
 
         self.remote_messages = TextInput(
             text="Здесь появятся сообщения удалённого участника.",
-            readonly=True, multiline=True, size_hint_y=1, padding=(8, 8),
+            readonly=True, multiline=True, size_hint_y=None, height=180, padding=(8, 8),
             background_color=(0.045,0.075,0.14,1), foreground_color=(0.91,0.95,1,1)
         )
-        content.add_widget(self.remote_messages)
+        details_content.add_widget(self.remote_messages)
 
         send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=50)
         self.remote_message_input = TextInput(
@@ -839,9 +847,12 @@ class YJ64BaseApp(App):
             font_size="10sp", halign="center", valign="middle",
             background_normal="", background_color=(0.13,0.31,0.53,1)
         )
+        send_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-8), max(1, value[1]-6))))
         send_button.bind(on_release=self._send_remote_participant_message)
         send_row.add_widget(send_button)
-        content.add_widget(send_row)
+        details_content.add_widget(send_row)
+        details_scroll.add_widget(details_content)
+        content.add_widget(details_scroll)
 
         actions = BoxLayout(orientation="horizontal", spacing=8, size_hint_y=None, height=52)
         self.remote_connect_button = FeedbackButton(
@@ -862,7 +873,7 @@ class YJ64BaseApp(App):
         close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=44, font_size="11sp", background_normal="")
         content.add_widget(close)
 
-        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.96, 0.92))
+        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.96, 0.90))
         close.bind(on_release=lambda *_: popup.dismiss())
         self.remote_participant_popup = popup
         popup.open()
@@ -1069,6 +1080,7 @@ class YJ64BaseApp(App):
             size_hint_y=None,
             height=70,
         )
+        title.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-12), max(1, value[1]-8))))
         content.add_widget(title)
 
         write_button = FeedbackButton(text="WRITE / GET ANSWER", size_hint_y=None, height=56)
@@ -1096,11 +1108,13 @@ class YJ64BaseApp(App):
         close_button = FeedbackButton(text="CLOSE", size_hint_y=None, height=56)
         close_button.bind(on_release=lambda *_: popup.dismiss())
         content.add_widget(close_button)
+        for action_button in (write_button, remote_button, settings_button, close_button):
+            action_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-12), max(1, value[1]-8))))
 
         popup = Popup(
             title=participant_name,
             content=content,
-            size_hint=(0.9, 0.55),
+            size_hint=(0.9, 0.72),
         )
         popup.open()
 
@@ -1161,6 +1175,8 @@ class YJ64BaseApp(App):
             height=48,
         )
         close = FeedbackButton(text="CLOSE", size_hint_y=None, height=54)
+        for action_button in (send, publish, close):
+            action_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-12), max(1, value[1]-8))))
         content.add_widget(output)
         content.add_widget(prompt)
         content.add_widget(send)
@@ -1169,7 +1185,7 @@ class YJ64BaseApp(App):
         popup = Popup(
             title=f"{participant_name} PRIVATE CHAT",
             content=content,
-            size_hint=(0.94, 0.78),
+            size_hint=(0.94, 0.88),
         )
         last_exchange: dict[str, Any] = {}
 
@@ -1355,7 +1371,9 @@ class YJ64BaseApp(App):
             write_tab=False,
         )
         cycle_row = BoxLayout(spacing=8, size_hint_y=None, height=48)
-        cycle_row.add_widget(Label(text="Rounds per participant:", size_hint_x=0.65))
+        rounds_label = Label(text="Rounds per participant:", size_hint_x=0.65, halign="left", valign="middle")
+        rounds_label.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-6), max(1, value[1]-6))))
+        cycle_row.add_widget(rounds_label)
         cycles_input = TextInput(
             text="3", multiline=False, input_filter="int", size_hint_x=0.35,
         )
@@ -1372,6 +1390,8 @@ class YJ64BaseApp(App):
         )
         controls.add_widget(toggle)
         close = FeedbackButton(text="CLOSE", size_hint_y=None, height=54)
+        for action_button in (toggle, close):
+            action_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1, value[0]-12), max(1, value[1]-8))))
         content.add_widget(output)
         content.add_widget(prompt)
         content.add_widget(cycle_row)
@@ -1381,7 +1401,7 @@ class YJ64BaseApp(App):
         popup = Popup(
             title="GROUP DIALOGUE",
             content=content,
-            size_hint=(0.95, 0.86),
+            size_hint=(0.95, 0.90),
             auto_dismiss=False,
         )
 
