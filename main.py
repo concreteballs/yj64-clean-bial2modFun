@@ -213,7 +213,14 @@ class YJ64BaseApp(App):
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
         from yj64_persistent_core import PersistentCore
         self.persistent_core = PersistentCore(self.user_data_dir)
+        self._archive_export_path = None
+        self._archive_restore_prompt_path = Path(self.user_data_dir) / "yj64-restore-prompted.json"
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
+        try:
+            from android.activity import bind
+            bind(on_activity_result=self._on_archive_activity_result)
+        except Exception as exc:
+            self._append_report("memory_archive_saf_unavailable", error=str(exc))
 
         self.status = Label(
             text="Starting embedded diagnostic agent...",
@@ -352,6 +359,7 @@ class YJ64BaseApp(App):
             process_name=self._process_name(),
         )
 
+        Clock.schedule_once(self._offer_archive_restore, 1.2)
         Clock.schedule_once(self._ensure_service_started, 0.5)
         Clock.schedule_interval(self._refresh_status, 1.0)
         Clock.schedule_interval(self._refresh_participant_buttons, 1.0)
@@ -368,6 +376,8 @@ class YJ64BaseApp(App):
         content = BoxLayout(orientation="vertical", spacing=8, padding=12)
         popup = Popup(title="YJ-64 MENU", content=content, size_hint=(0.88, 0.62))
         actions = [
+            ("СОЗДАТЬ АРХИВ ПАМЯТИ", self._create_memory_archive),
+            ("ВОССТАНОВИТЬ ИЗ ZIP", self._choose_memory_archive),
             (self._t(5), self._open_tools_menu),
             (self._t(6), self._show_chats),
             (self._t(7), self._new_chat),
@@ -386,6 +396,133 @@ class YJ64BaseApp(App):
         content.add_widget(close)
         popup.open()
         self._append_report("main_menu_opened", actions=["tools_monitor", "chats", "new_chat", "global_skills_file"])
+
+    def _offer_archive_restore(self, *_: Any) -> None:
+        """Offer archive import once per installation; never block normal startup."""
+        if self._archive_restore_prompt_path.exists():
+            return
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="Если у вас есть архив памяти YJ-64 (.zip), восстановите его сейчас. "
+                 "Без архива можно продолжить работу и выбрать его позже в меню."
+        ))
+        popup = Popup(title="ВОССТАНОВЛЕНИЕ ПАМЯТИ", content=content, size_hint=(0.92, 0.42), auto_dismiss=False)
+        choose = FeedbackButton(text="ВЫБРАТЬ АРХИВ ZIP", size_hint_y=None, height=48)
+        later = FeedbackButton(text="ПОЗЖЕ", size_hint_y=None, height=42)
+        choose.bind(on_release=lambda *_: (popup.dismiss(), self._choose_memory_archive()))
+        def defer_restore(*_: Any) -> None:
+            self._archive_restore_prompt_path.write_text(
+                json.dumps({"prompted": True, "timestamp_ms": int(time.time() * 1000)}),
+                encoding="utf-8",
+            )
+            popup.dismiss()
+        later.bind(on_release=defer_restore)
+        content.add_widget(choose)
+        content.add_widget(later)
+        popup.open()
+        self._append_report("memory_archive_restore_offered")
+
+    def _create_memory_archive(self, *_: Any) -> None:
+        """Create a portable ZIP then let Android's document picker save it outside app data."""
+        try:
+            temp_path = Path(self.user_data_dir) / "YJ-64-backup.zip"
+            self.persistent_core.export_archive(temp_path)
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.setType("application/zip")
+            intent.putExtra(Intent.EXTRA_TITLE, "YJ-64-backup.zip")
+            self._archive_export_path = str(temp_path)
+            PythonActivity.mActivity.startActivityForResult(intent, 4701)
+            self.status.text = "Выбери папку для сохранения YJ-64-backup.zip."
+            self._append_report("memory_archive_export_picker_opened", archive_size=temp_path.stat().st_size)
+        except Exception as exc:
+            self.status.text = "Не удалось создать архив: " + str(exc)
+            self._append_report("memory_archive_export_failed", error=str(exc))
+
+    def _choose_memory_archive(self, *_: Any) -> None:
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.setType("application/zip")
+            self._archive_restore_prompt_path.write_text(
+                json.dumps({"prompted": True, "timestamp_ms": int(time.time() * 1000)}),
+                encoding="utf-8",
+            )
+            PythonActivity.mActivity.startActivityForResult(intent, 4702)
+            self.status.text = "Выбери ранее сохранённый архив YJ-64-backup.zip."
+            self._append_report("memory_archive_import_picker_opened")
+        except Exception as exc:
+            self.status.text = "Не удалось открыть выбор архива: " + str(exc)
+            self._append_report("memory_archive_import_picker_failed", error=str(exc))
+
+    def _on_archive_activity_result(self, request_code: int, result_code: int, intent: Any) -> None:
+        if request_code not in (4701, 4702):
+            return
+        if result_code != -1 or intent is None:
+            self.status.text = "Операция с архивом отменена."
+            self._append_report("memory_archive_picker_cancelled", request_code=request_code)
+            return
+        uri = intent.getData()
+        if uri is None:
+            self.status.text = "Android не вернул файл."
+            self._append_report("memory_archive_uri_missing", request_code=request_code)
+            return
+        temp_path = Path(self.user_data_dir) / ("yj64-archive-import.zip" if request_code == 4702 else "YJ-64-backup.zip")
+        try:
+            from jnius import autoclass, JavaArray, jbyte
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            resolver = PythonActivity.mActivity.getContentResolver()
+            if request_code == 4701:
+                from_stream = autoclass("java.io.FileInputStream")(str(self._archive_export_path))
+                to_stream = resolver.openOutputStream(uri)
+            else:
+                from_stream = resolver.openInputStream(uri)
+                to_stream = autoclass("java.io.FileOutputStream")(str(temp_path))
+            if from_stream is None or to_stream is None:
+                raise IOError("Android could not open the selected file")
+            buffer = JavaArray(jbyte, 8192)
+            try:
+                while True:
+                    count = from_stream.read(buffer)
+                    if count < 0:
+                        break
+                    to_stream.write(buffer, 0, count)
+                to_stream.flush()
+            finally:
+                from_stream.close()
+                to_stream.close()
+            if request_code == 4701:
+                self.status.text = "Архив памяти сохранён. Перед удалением приложения проверь, что ZIP виден в выбранной папке."
+                self._append_report("memory_archive_export_succeeded", size_bytes=temp_path.stat().st_size)
+            else:
+                count = self.persistent_core.import_archive(temp_path)
+                from chat_workspace import ChatWorkspace
+                self.workspace = ChatWorkspace(self.user_data_dir)
+                chats = self.workspace.list_chats()
+                if chats:
+                    self.current_chat_id = str(chats[0]["id"])
+                    self.common_history = self.workspace.load_messages(self.current_chat_id)
+                    if hasattr(self, "chat_output"):
+                        self.chat_output.text = self._render_history()
+                self.private_histories = {}
+                self.status.text = f"Архив восстановлен: {count} событий. Перезапусти приложение, если часть экранов ещё показывает старые данные."
+                self._append_report("memory_archive_import_succeeded", event_count=count, archive=str(uri))
+                try:
+                    self._archive_restore_prompt_path.write_text(
+                        json.dumps({"prompted": True, "restored": True, "timestamp_ms": int(time.time() * 1000)}),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+        except Exception as exc:
+            self.status.text = "Ошибка архива памяти: " + str(exc)
+            self._append_report("memory_archive_transfer_failed", request_code=request_code, error=str(exc))
 
     def _load_language(self) -> str | None:
         path = Path(self.user_data_dir) / "yj64-language.json"
