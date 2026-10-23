@@ -2017,7 +2017,9 @@ class YJ64BaseApp(App):
                         self._append_report("llm_chat_participant_turn_started", participant=name, round_number=round_number, route_id=target["route_id"], history_count=len(history_snapshot), history_last_role=(history_snapshot[-1].get("role") if history_snapshot else None), agent_prompt_appended=(target["mode"] == "agent"))
                         try:
                             result = self.message_distributor.dispatch_message(self.user_data_dir, name, turn_prompt, mode=target["mode"], history=history_snapshot, report=lambda event, _p=name, _r=round_number, **data: self._append_report("llm_chat_"+event, **{"participant":_p,"round_number":_r,**data}))
-                            response = str(result["response"])
+                            response = str(result.get("response") or "").strip()
+                            if not response:
+                                raise RuntimeError("Provider returned an empty response; turn marked as failed.")
                             self.common_history.append({"role":"assistant","content":f"{name}: {response}"})
                             self._save_common_history()
                             successful += 1
