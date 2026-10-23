@@ -61,7 +61,8 @@ class ChatTranscript(BoxLayout):
     def _render_messages(self):
         self.clear_widgets()
         parts = self._message_parts()
-        copy_all = FeedbackButton(text="⧉ КОПИРОВАТЬ ОБСУЖДЕНИЕ С ПОСЛЕДНЕГО СООБЩЕНИЯ ВЛАДЕЛЬЦА", size_hint_y=None, height=34, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        copy_all = FeedbackButton(text="⧉ КОПИРОВАТЬ ОБСУЖДЕНИЕ С ПОСЛЕДНЕГО СООБЩЕНИЯ ВЛАДЕЛЬЦА", size_hint_y=None, height=48, font_size="10sp", halign="center", valign="middle", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
+        copy_all.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1, value[0]-16), max(1, value[1]-8))))
         def copy_discussion(*_):
             start = 0
             for index, (role, _body, _raw) in enumerate(parts):
@@ -76,7 +77,8 @@ class ChatTranscript(BoxLayout):
             right_aligned = owner or role == "Participant 2"
             colors = {"Participant 1": (0.10,0.31,0.47,1), "Participant 2": (0.32,0.20,0.45,1), "Participant 3": (0.12,0.36,0.28,1)}
             color = (0.10,0.27,0.42,1) if owner else colors.get(role, (0.15,0.19,0.29,1))
-            row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=max(82, min(620, (len(body.splitlines()) + max(1, len(body)//48))*20 + 48)))
+            body_height = max(48, min(560, (len(body.splitlines()) + max(1, len(body)//48))*20 + 8))
+            row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=body_height + 80)
             if not right_aligned:
                 row.add_widget(Label(text="", size_hint_x=0.08))
             bubble = BoxLayout(orientation="vertical", spacing=4, padding=7, size_hint_x=0.92 if right_aligned else 0.84)
@@ -84,7 +86,7 @@ class ChatTranscript(BoxLayout):
             title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
-            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=max(48, min(560, (len(body.splitlines()) + max(1, len(body)//48))*20 + 8)), padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
+            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
             bubble.add_widget(message)
             copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
@@ -228,13 +230,13 @@ class YJ64BaseApp(App):
         )
         root.add_widget(self.stop_discussion_button)
 
-        action_grid = GridLayout(cols=3, spacing=6, size_hint_y=None, row_default_height=48, row_force_default=True)
+        action_grid = GridLayout(cols=2, spacing=6, size_hint_y=None, row_default_height=62, row_force_default=True)
         action_grid.bind(minimum_height=action_grid.setter("height"))
         self.action_buttons = []
         actions = [(10,self._toggle_critique_mode),(13,self._toggle_practical_mode),(14,self._start_agent_implementation)]
         for key, callback in actions:
-            button = FeedbackButton(text=self._t(key), size_hint_y=None, height=48, font_size="11sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
-            button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-8),max(1,value[1]-6))))
+            button = FeedbackButton(text=self._t(key), size_hint_y=None, height=62, font_size="10sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button.bind(size=lambda instance,value: setattr(instance,"text_size",(max(1,value[0]-12),max(1,value[1]-8))))
             button.bind(on_release=callback)
             action_grid.add_widget(button)
             self.action_buttons.append((key,button))
@@ -271,21 +273,25 @@ class YJ64BaseApp(App):
         self.chat_scroll.add_widget(self.chat_output)
         chat_area.add_widget(self.chat_scroll)
 
-        participant_panel = BoxLayout(orientation="vertical", size_hint_x=None, width=98, spacing=5)
-        self.participants_heading = Label(text=self._t(2).upper(), size_hint_y=None, height=24, color=(0.61,0.76,0.96,1), bold=True, halign="center", valign="middle", font_size="9sp")
+        participant_scroll = ScrollView(size_hint_x=None, width=110, do_scroll_x=False, do_scroll_y=True, bar_width=3, scroll_type=["bars", "content"])
+        participant_panel = BoxLayout(orientation="vertical", size_hint_y=None, spacing=6, padding=(2, 2))
+        participant_panel.bind(minimum_height=participant_panel.setter("height"))
+        self.participants_heading = Label(text=self._t(2).upper(), size_hint_y=None, height=30, color=(0.61,0.76,0.96,1), bold=True, halign="center", valign="middle", font_size="9sp")
+        self.participants_heading.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-4), max(1,value[1]-4))))
         participant_panel.add_widget(self.participants_heading)
         self.participant_buttons = {}
         for participant_name in ("Participant 1", "Participant 2", "Participant 3"):
-            button = FeedbackButton(text=self._participant_label(participant_name), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
-            button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-6), max(1,value[1]-6))))
+            button = FeedbackButton(text=self._participant_label(participant_name), size_hint_y=None, height=60, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.10,0.20,0.36,1), color=(0.91,0.95,1,1))
+            button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-8), max(1,value[1]-8))))
             button.bind(on_release=lambda _button, name=participant_name: self._open_participant_menu(name))
             self.participant_buttons[participant_name] = button
             participant_panel.add_widget(button)
-        self.remote_participant_button = FeedbackButton(text=self._t(12), size_hint_y=None, height=58, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(0.91,0.95,1,1))
-        self.remote_participant_button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-6), max(1,value[1]-6))))
+        self.remote_participant_button = FeedbackButton(text=self._t(12), size_hint_y=None, height=64, font_size="9sp", halign="center", valign="middle", background_normal="", background_down="", background_color=(0.13,0.31,0.53,1), color=(0.91,0.95,1,1))
+        self.remote_participant_button.bind(size=lambda instance, value: setattr(instance, "text_size", (max(1,value[0]-8), max(1,value[1]-8))))
         self.remote_participant_button.bind(on_release=self._open_remote_participant)
         participant_panel.add_widget(self.remote_participant_button)
-        chat_area.add_widget(participant_panel)
+        participant_scroll.add_widget(participant_panel)
+        chat_area.add_widget(participant_scroll)
         root.add_widget(chat_area)
 
         self.chat_send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=44)
@@ -779,20 +785,26 @@ class YJ64BaseApp(App):
             )
 
         content = BoxLayout(orientation="vertical", spacing=8, padding=10)
-        form = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        form = GridLayout(cols=1, spacing=7, size_hint_y=None)
         form.bind(minimum_height=form.setter("height"))
-        form.add_widget(Label(text="Подключение к удалённому участнику", size_hint_y=None, height=30))
+        form_title = Label(
+            text="Подключение к удалённому участнику",
+            size_hint_y=None, height=48, halign="center", valign="middle",
+            font_size="14sp", color=(0.91,0.95,1,1)
+        )
+        form_title.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1,value[0]-12), max(1,value[1]-8))))
+        form.add_widget(form_title)
         self.remote_url_input = TextInput(
             hint_text="Адрес сервера: wss://…", text=getattr(self, "remote_saved_url", ""),
-            multiline=False, size_hint_y=None, height=46, write_tab=False
+            multiline=False, size_hint_y=None, height=48, write_tab=False, padding=(8, 8)
         )
         self.remote_name_input = TextInput(
             hint_text="Имя участника", text=getattr(self, "remote_saved_name", "Owner"),
-            multiline=False, size_hint_y=None, height=46, write_tab=False
+            multiline=False, size_hint_y=None, height=48, write_tab=False, padding=(8, 8)
         )
         self.remote_token_input = TextInput(
             hint_text="Токен доступа (секретный)", password=True, multiline=False,
-            size_hint_y=None, height=46, write_tab=False
+            size_hint_y=None, height=48, write_tab=False, padding=(8, 8)
         )
         form.add_widget(self.remote_url_input)
         form.add_widget(self.remote_name_input)
@@ -801,10 +813,11 @@ class YJ64BaseApp(App):
 
         self.remote_connection_status = Label(
             text="Не подключено. Введите адрес сервера и токен.",
-            size_hint_y=None, height=48, halign="left", valign="middle"
+            size_hint_y=None, height=60, halign="left", valign="middle",
+            font_size="12sp", color=(0.91,0.95,1,1)
         )
         self.remote_connection_status.bind(
-            size=lambda w, value: setattr(w, "text_size", (max(1, value[0]), max(1, value[1])))
+            size=lambda w, value: setattr(w, "text_size", (max(1, value[0]-8), max(1, value[1]-8)))
         )
         content.add_widget(self.remote_connection_status)
 
@@ -815,35 +828,41 @@ class YJ64BaseApp(App):
         )
         content.add_widget(self.remote_messages)
 
-        send_row = BoxLayout(orientation="horizontal", spacing=5, size_hint_y=None, height=44)
+        send_row = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=50)
         self.remote_message_input = TextInput(
-            hint_text="Сообщение удалённому участнику…", multiline=False, write_tab=False
+            hint_text="Сообщение удалённому участнику…", multiline=False, write_tab=False,
+            size_hint_y=None, height=46, padding=(8, 8)
         )
         send_row.add_widget(self.remote_message_input)
         send_button = FeedbackButton(
-            text="ОТПРАВИТЬ", size_hint_x=None, width=110,
+            text="ОТПРАВИТЬ", size_hint_x=None, width=94, size_hint_y=None, height=46,
+            font_size="10sp", halign="center", valign="middle",
             background_normal="", background_color=(0.13,0.31,0.53,1)
         )
         send_button.bind(on_release=self._send_remote_participant_message)
         send_row.add_widget(send_button)
         content.add_widget(send_row)
 
-        actions = BoxLayout(orientation="horizontal", spacing=6, size_hint_y=None, height=46)
+        actions = BoxLayout(orientation="horizontal", spacing=8, size_hint_y=None, height=52)
         self.remote_connect_button = FeedbackButton(
-            text="ПОДКЛЮЧИТЬСЯ", background_normal="", background_color=(0.12,0.45,0.28,1)
+            text="ПОДКЛЮЧИТЬСЯ", size_hint_y=None, height=48, font_size="10sp",
+            halign="center", valign="middle", background_normal="", background_color=(0.12,0.45,0.28,1)
         )
+        self.remote_connect_button.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1,value[0]-10), max(1,value[1]-8))))
         self.remote_connect_button.bind(on_release=self._connect_remote_participant)
         actions.add_widget(self.remote_connect_button)
         disconnect = FeedbackButton(
-            text="ОТКЛЮЧИТЬСЯ", background_normal="", background_color=(0.45,0.20,0.20,1)
+            text="ОТКЛЮЧИТЬСЯ", size_hint_y=None, height=48, font_size="10sp",
+            halign="center", valign="middle", background_normal="", background_color=(0.45,0.20,0.20,1)
         )
+        disconnect.bind(size=lambda widget, value: setattr(widget, "text_size", (max(1,value[0]-10), max(1,value[1]-8))))
         disconnect.bind(on_release=lambda *_: self.remote_participant_client.disconnect())
         actions.add_widget(disconnect)
-        close = FeedbackButton(text="ЗАКРЫТЬ", background_normal="")
-        actions.add_widget(close)
         content.add_widget(actions)
+        close = FeedbackButton(text="ЗАКРЫТЬ", size_hint_y=None, height=44, font_size="11sp", background_normal="")
+        content.add_widget(close)
 
-        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.96, 0.88))
+        popup = Popup(title="REMOTE PARTICIPANT", content=content, size_hint=(0.96, 0.92))
         close.bind(on_release=lambda *_: popup.dismiss())
         self.remote_participant_popup = popup
         popup.open()
