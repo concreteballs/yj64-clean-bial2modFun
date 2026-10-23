@@ -545,7 +545,7 @@ def generate_response(
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
         http_method="POST", endpoint=url, prompt=prompt,
-        history_count=request_history_count, **request_metrics,
+        **request_metrics,
     )
     _report(
         report, "gateway_request_sending",
