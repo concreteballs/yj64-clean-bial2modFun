@@ -475,7 +475,7 @@ class YJ64BaseApp(App):
             return
         temp_path = Path(self.user_data_dir) / ("yj64-archive-import.zip" if request_code == 4702 else "YJ-64-backup.zip")
         try:
-            from jnius import autoclass, JavaArray, jbyte
+            from jnius import autoclass, jarray
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             resolver = PythonActivity.mActivity.getContentResolver()
             if request_code == 4701:
@@ -486,7 +486,7 @@ class YJ64BaseApp(App):
                 to_stream = autoclass("java.io.FileOutputStream")(str(temp_path))
             if from_stream is None or to_stream is None:
                 raise IOError("Android could not open the selected file")
-            buffer = JavaArray(jbyte, 8192)
+            buffer = jarray('b', [0] * 8192)
             try:
                 while True:
                     count = from_stream.read(buffer)
