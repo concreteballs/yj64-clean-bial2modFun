@@ -86,8 +86,33 @@ class ChatTranscript(BoxLayout):
             title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
-            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
-            bubble.add_widget(message)
+            # Give every reply its own scroll viewport so long answers remain readable
+            # without copying them elsewhere. The outer chat scroll remains independent.
+            message_scroll = ScrollView(
+                size_hint_y=None, height=body_height,
+                do_scroll_x=False, do_scroll_y=True, bar_width=4,
+                scroll_type=["bars", "content"],
+            )
+            message = Label(
+                text=body, size_hint_y=None, halign="left", valign="top",
+                color=(0.96,0.97,1,1), font_size="13sp",
+            )
+            message.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(1, value - 14), None)
+                )
+            )
+            message.bind(
+                texture_size=lambda instance, value: setattr(
+                    instance, "height", max(body_height, value[1] + 14)
+                )
+            )
+            message.height = max(
+                body_height,
+                (len(body.splitlines()) + max(1, len(body) // 42)) * 20 + 18,
+            )
+            message_scroll.add_widget(message)
+            bubble.add_widget(message_scroll)
             copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
             bubble.add_widget(copy_button)
@@ -186,6 +211,8 @@ class YJ64BaseApp(App):
         self.dialogue_stop_event = None
         self.dialogue_worker_active = False
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
+        from yj64_persistent_core import PersistentCore
+        self.persistent_core = PersistentCore(self.user_data_dir)
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
 
         self.status = Label(
@@ -1902,6 +1929,11 @@ class YJ64BaseApp(App):
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
+            try:
+                self.persistent_core.record_event(event, data)
+            except Exception:
+                # SQLite is secondary to the primary diagnostic JSONL; never block UI.
+                pass
         except OSError:
             pass
 
@@ -2398,6 +2430,12 @@ class YJ64BaseApp(App):
                                 report=lambda event, _p=name, _r=round_number, **data:
                                     self._append_report("llm_chat_" + event, **{"participant": _p, "round_number": _r, **data}),
                             )
+                            returned_route = str(result.get("route_id") or "")
+                            if returned_route and returned_route != target["route_id"]:
+                                raise RuntimeError(
+                                    f"{name} route mismatch: requested {target['route_id']}, "
+                                    f"received {returned_route}; refusing to display a substituted response"
+                                )
                             response = str(result.get("response") or "").strip()
                             if not response:
                                 raise RuntimeError("Provider returned an empty response; turn marked as failed.")
