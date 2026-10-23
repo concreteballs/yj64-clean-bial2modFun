@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Fail-closed APK signing certificate verifier for YJ-64.
 
-This tool verifies the certificate on an already-built APK. It does NOT create
-or recover a private key. The default fingerprint is from a previously inspected
-sample APK and must be confirmed against the APK currently installed on the
-target phone before it is treated as the update identity.
+This tool can sign an APK with a supplied private keystore and verify its certificate.
+It never creates, recovers, prints, or commits a private key. The default fingerprint
+is from a previously inspected sample APK and must be confirmed against the APK
+currently installed on the target phone before it is treated as the update identity.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REFERENCE_SHA256 = (
@@ -89,7 +92,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify that a YJ-64 APK is signed by the expected certificate."
     )
-    parser.add_argument("--apk", required=True, help="Path to the APK to verify")
+    parser.add_argument("--apk", required=True, help="Path to the APK to verify or sign")
+    parser.add_argument("--sign", action="store_true", help="Sign with CI environment secrets and verify the output")
+    parser.add_argument("--output", help="Separate output APK path required with --sign")
     parser.add_argument(
         "--expected-sha256",
         default=REFERENCE_SHA256,
