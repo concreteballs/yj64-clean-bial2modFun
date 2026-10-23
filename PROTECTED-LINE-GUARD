@@ -519,7 +519,7 @@ class YJ64BaseApp(App):
             return
         temp_path = Path(self.user_data_dir) / ("yj64-archive-import.zip" if request_code == 4702 else "YJ-64-backup.zip")
         try:
-            from jnius import autoclass, JavaArray, jbyte
+            from jnius import autoclass, jarray
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             resolver = PythonActivity.mActivity.getContentResolver()
             if request_code == 4701:
@@ -530,7 +530,7 @@ class YJ64BaseApp(App):
                 to_stream = autoclass("java.io.FileOutputStream")(str(temp_path))
             if from_stream is None or to_stream is None:
                 raise IOError("Android could not open the selected file")
-            buffer = JavaArray(jbyte, 8192)
+            buffer = jarray('b', [0] * 8192)
             try:
                 while True:
                     count = from_stream.read(buffer)
@@ -5936,7 +5936,7 @@ Human-readable semantic summary. Structured events, state, and tasks live in `yj
 
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=05b40486b143a8a38f5ddfb862c13c74ec7ba8bb
+EXPECTED-GIT-BLOB-SHA:main.py=c08c5d1454613e84538c074abfb4f376e4f3d7c9
 EXPECTED-GIT-BLOB-SHA:llm_api.py=b83f109174e2390670c096a8981570ba9309a2ad
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
