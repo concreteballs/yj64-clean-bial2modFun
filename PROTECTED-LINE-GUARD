@@ -27,16 +27,16 @@ VERSION CONTROL — ЗАЩИЩЁННЫЙ БЛОК НОМЕРА ВЕРСИИ APK
 Правило: OLD_VERSION = последняя подтверждённая успешная сборка.
 Правило: NEW_VERSION = версия, предназначенная для следующей сборки.
 Модуль 1 — OLD_VERSION:
-0.1.14
-Модуль 2 — NEW_VERSION:
 0.1.18
+Модуль 2 — NEW_VERSION:
+0.1.19
 Обязательные условия допуска к сборке:
 1. NEW_VERSION строго больше OLD_VERSION по семантическому сравнению major.minor.patch.
 2. NEW_VERSION точно совпадает со значением version в buildozer.spec.
 3. Если OLD_VERSION == NEW_VERSION, сборка запрещена.
 4. Если версия отсутствует, имеет неверный формат, не увеличена или не совпадает с buildozer.spec, сборка запрещена.
 5. После подтверждённой успешной сборки скопировать NEW_VERSION в OLD_VERSION; затем увеличить NEW_VERSION для следующей сборки и согласовать её с buildozer.spec только при подготовке следующего APK.
-6. Последняя подтверждённая версия перед текущей сборкой — 0.1.14; версия следующей сборки — 0.1.18. buildozer.spec синхронизирован с NEW_VERSION.
+6. Последняя подтверждённая версия перед текущей сборкой — 0.1.18; версия следующей сборки — 0.1.19. buildozer.spec синхронизирован с NEW_VERSION.
 ============================================================
 
 ============================================================ НАЧАЛО ОПЕРАЦИОННОГО СТОЛА
@@ -257,7 +257,14 @@ class YJ64BaseApp(App):
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
         from yj64_persistent_core import PersistentCore
         self.persistent_core = PersistentCore(self.user_data_dir)
+        self._archive_export_path = None
+        self._archive_restore_prompt_path = Path(self.user_data_dir) / "yj64-restore-prompted.json"
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
+        try:
+            from android.activity import bind
+            bind(on_activity_result=self._on_archive_activity_result)
+        except Exception as exc:
+            self._append_report("memory_archive_saf_unavailable", error=str(exc))
 
         self.status = Label(
             text="Starting embedded diagnostic agent...",
@@ -396,6 +403,7 @@ class YJ64BaseApp(App):
             process_name=self._process_name(),
         )
 
+        Clock.schedule_once(self._offer_archive_restore, 1.2)
         Clock.schedule_once(self._ensure_service_started, 0.5)
         Clock.schedule_interval(self._refresh_status, 1.0)
         Clock.schedule_interval(self._refresh_participant_buttons, 1.0)
@@ -412,6 +420,8 @@ class YJ64BaseApp(App):
         content = BoxLayout(orientation="vertical", spacing=8, padding=12)
         popup = Popup(title="YJ-64 MENU", content=content, size_hint=(0.88, 0.62))
         actions = [
+            ("СОЗДАТЬ АРХИВ ПАМЯТИ", self._create_memory_archive),
+            ("ВОССТАНОВИТЬ ИЗ ZIP", self._choose_memory_archive),
             (self._t(5), self._open_tools_menu),
             (self._t(6), self._show_chats),
             (self._t(7), self._new_chat),
@@ -430,6 +440,133 @@ class YJ64BaseApp(App):
         content.add_widget(close)
         popup.open()
         self._append_report("main_menu_opened", actions=["tools_monitor", "chats", "new_chat", "global_skills_file"])
+
+    def _offer_archive_restore(self, *_: Any) -> None:
+        """Offer archive import once per installation; never block normal startup."""
+        if self._archive_restore_prompt_path.exists():
+            return
+        content = BoxLayout(orientation="vertical", spacing=10, padding=12)
+        content.add_widget(Label(
+            text="Если у вас есть архив памяти YJ-64 (.zip), восстановите его сейчас. "
+                 "Без архива можно продолжить работу и выбрать его позже в меню."
+        ))
+        popup = Popup(title="ВОССТАНОВЛЕНИЕ ПАМЯТИ", content=content, size_hint=(0.92, 0.42), auto_dismiss=False)
+        choose = FeedbackButton(text="ВЫБРАТЬ АРХИВ ZIP", size_hint_y=None, height=48)
+        later = FeedbackButton(text="ПОЗЖЕ", size_hint_y=None, height=42)
+        choose.bind(on_release=lambda *_: (popup.dismiss(), self._choose_memory_archive()))
+        def defer_restore(*_: Any) -> None:
+            self._archive_restore_prompt_path.write_text(
+                json.dumps({"prompted": True, "timestamp_ms": int(time.time() * 1000)}),
+                encoding="utf-8",
+            )
+            popup.dismiss()
+        later.bind(on_release=defer_restore)
+        content.add_widget(choose)
+        content.add_widget(later)
+        popup.open()
+        self._append_report("memory_archive_restore_offered")
+
+    def _create_memory_archive(self, *_: Any) -> None:
+        """Create a portable ZIP then let Android's document picker save it outside app data."""
+        try:
+            temp_path = Path(self.user_data_dir) / "YJ-64-backup.zip"
+            self.persistent_core.export_archive(temp_path)
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.setType("application/zip")
+            intent.putExtra(Intent.EXTRA_TITLE, "YJ-64-backup.zip")
+            self._archive_export_path = str(temp_path)
+            PythonActivity.mActivity.startActivityForResult(intent, 4701)
+            self.status.text = "Выбери папку для сохранения YJ-64-backup.zip."
+            self._append_report("memory_archive_export_picker_opened", archive_size=temp_path.stat().st_size)
+        except Exception as exc:
+            self.status.text = "Не удалось создать архив: " + str(exc)
+            self._append_report("memory_archive_export_failed", error=str(exc))
+
+    def _choose_memory_archive(self, *_: Any) -> None:
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.setType("application/zip")
+            self._archive_restore_prompt_path.write_text(
+                json.dumps({"prompted": True, "timestamp_ms": int(time.time() * 1000)}),
+                encoding="utf-8",
+            )
+            PythonActivity.mActivity.startActivityForResult(intent, 4702)
+            self.status.text = "Выбери ранее сохранённый архив YJ-64-backup.zip."
+            self._append_report("memory_archive_import_picker_opened")
+        except Exception as exc:
+            self.status.text = "Не удалось открыть выбор архива: " + str(exc)
+            self._append_report("memory_archive_import_picker_failed", error=str(exc))
+
+    def _on_archive_activity_result(self, request_code: int, result_code: int, intent: Any) -> None:
+        if request_code not in (4701, 4702):
+            return
+        if result_code != -1 or intent is None:
+            self.status.text = "Операция с архивом отменена."
+            self._append_report("memory_archive_picker_cancelled", request_code=request_code)
+            return
+        uri = intent.getData()
+        if uri is None:
+            self.status.text = "Android не вернул файл."
+            self._append_report("memory_archive_uri_missing", request_code=request_code)
+            return
+        temp_path = Path(self.user_data_dir) / ("yj64-archive-import.zip" if request_code == 4702 else "YJ-64-backup.zip")
+        try:
+            from jnius import autoclass, JavaArray, jbyte
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            resolver = PythonActivity.mActivity.getContentResolver()
+            if request_code == 4701:
+                from_stream = autoclass("java.io.FileInputStream")(str(self._archive_export_path))
+                to_stream = resolver.openOutputStream(uri)
+            else:
+                from_stream = resolver.openInputStream(uri)
+                to_stream = autoclass("java.io.FileOutputStream")(str(temp_path))
+            if from_stream is None or to_stream is None:
+                raise IOError("Android could not open the selected file")
+            buffer = JavaArray(jbyte, 8192)
+            try:
+                while True:
+                    count = from_stream.read(buffer)
+                    if count < 0:
+                        break
+                    to_stream.write(buffer, 0, count)
+                to_stream.flush()
+            finally:
+                from_stream.close()
+                to_stream.close()
+            if request_code == 4701:
+                self.status.text = "Архив памяти сохранён. Перед удалением приложения проверь, что ZIP виден в выбранной папке."
+                self._append_report("memory_archive_export_succeeded", size_bytes=temp_path.stat().st_size)
+            else:
+                count = self.persistent_core.import_archive(temp_path)
+                from chat_workspace import ChatWorkspace
+                self.workspace = ChatWorkspace(self.user_data_dir)
+                chats = self.workspace.list_chats()
+                if chats:
+                    self.current_chat_id = str(chats[0]["id"])
+                    self.common_history = self.workspace.load_messages(self.current_chat_id)
+                    if hasattr(self, "chat_output"):
+                        self.chat_output.text = self._render_history()
+                self.private_histories = {}
+                self.status.text = f"Архив восстановлен: {count} событий. Перезапусти приложение, если часть экранов ещё показывает старые данные."
+                self._append_report("memory_archive_import_succeeded", event_count=count, archive=str(uri))
+                try:
+                    self._archive_restore_prompt_path.write_text(
+                        json.dumps({"prompted": True, "restored": True, "timestamp_ms": int(time.time() * 1000)}),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+        except Exception as exc:
+            self.status.text = "Ошибка архива памяти: " + str(exc)
+            self._append_report("memory_archive_transfer_failed", request_code=request_code, error=str(exc))
 
     def _load_language(self) -> str | None:
         path = Path(self.user_data_dir) / "yj64-language.json"
@@ -2799,7 +2936,6 @@ class YJ64BaseApp(App):
 
 
 YJ64BaseApp().run()
-
 END ALLOWED
 
 ============================================================
@@ -4365,7 +4501,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.18
+version = 0.1.19
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -4387,7 +4523,6 @@ android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --e
 log_level = 2
 warn_on_root = 1
 bin_dir = ./bin
-
 END ALLOWED
 FILE: chat_workspace.py BEGIN ALLOWED
 """Persistent local workspace for YJ-64 chats, threads, and skills."""
@@ -5567,6 +5702,8 @@ summary lives beside the database. API credentials must never be stored here.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 import time
 import uuid
@@ -5694,9 +5831,11 @@ class PersistentCore:
         return [dict(row) for row in rows]
 
     def export_archive(self, destination: str | Path) -> str:
+        """Export SQLite plus chat workspace into one portable, path-safe ZIP."""
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temp_db = self.root / ("export-" + uuid.uuid4().hex + ".sqlite3")
+        workspace = self.root / "yj64-workspace"
         try:
             with self._connect() as source, sqlite3.connect(str(temp_db)) as target:
                 source.backup(target)
@@ -5704,9 +5843,14 @@ class PersistentCore:
                 archive.write(temp_db, DB_NAME)
                 if self.summary_path.exists():
                     archive.write(self.summary_path, SUMMARY_NAME)
+                if workspace.is_dir():
+                    for item in sorted(workspace.rglob("*")):
+                        if item.is_file():
+                            archive.write(item, (Path("workspace") / item.relative_to(workspace)).as_posix())
                 archive.writestr(
                     "manifest.json",
-                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000)},
+                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000),
+                                "includes_workspace": workspace.is_dir()},
                                ensure_ascii=False),
                 )
         finally:
@@ -5717,30 +5861,64 @@ class PersistentCore:
         return str(destination)
 
     def import_archive(self, source: str | Path) -> int:
-        with zipfile.ZipFile(source, "r") as archive:
-            names = set(archive.namelist())
-            if "manifest.json" not in names or DB_NAME not in names:
-                raise ValueError("Archive is missing the YJ-64 manifest or SQLite database")
-            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
-            if manifest.get("schema") != SCHEMA:
-                raise ValueError("Unsupported YJ-64 archive schema")
-            temp_db = self.root / ("import-" + uuid.uuid4().hex + ".sqlite3")
-            temp_db.write_bytes(archive.read(DB_NAME))
-            try:
+        """Validate the archive before replacing the local database/workspace."""
+        staging = self.root / ("restore-" + uuid.uuid4().hex)
+        temp_db = self.root / ("import-" + uuid.uuid4().hex + ".sqlite3")
+        staging.mkdir(parents=True, exist_ok=False)
+        try:
+            with zipfile.ZipFile(source, "r") as archive:
+                names = set(archive.namelist())
+                if "manifest.json" not in names or DB_NAME not in names:
+                    raise ValueError("Archive is missing the YJ-64 manifest or SQLite database")
+                manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                if manifest.get("schema") != SCHEMA:
+                    raise ValueError("Unsupported YJ-64 archive schema")
+                # Only accept known top-level entries and reject traversal paths.
+                allowed = {"manifest.json", DB_NAME, SUMMARY_NAME}
+                for name in names:
+                    if name in allowed:
+                        continue
+                    path = Path(name)
+                    if path.is_absolute() or ".." in path.parts or path.parts[0] != "workspace":
+                        raise ValueError("Archive contains an unsafe path")
+                temp_db.write_bytes(archive.read(DB_NAME))
                 with sqlite3.connect(str(temp_db)) as imported:
                     count = int(imported.execute("SELECT COUNT(*) FROM events").fetchone()[0])
                     imported.execute("SELECT key FROM state LIMIT 1").fetchall()
-                with self._connect() as target, sqlite3.connect(str(temp_db)) as source_db:
-                    source_db.backup(target)
+                    imported.execute("SELECT task_id FROM tasks LIMIT 1").fetchall()
+                if "workspace" in {Path(name).parts[0] for name in names if name}:
+                    for name in names:
+                        if name.startswith("workspace/") and not name.endswith("/"):
+                            relative = Path(name).relative_to("workspace")
+                            target = staging / "workspace" / relative
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_bytes(archive.read(name))
                 if SUMMARY_NAME in names:
-                    self.summary_path.write_bytes(archive.read(SUMMARY_NAME))
-                return count
-            finally:
+                    (staging / SUMMARY_NAME).write_bytes(archive.read(SUMMARY_NAME))
+            with self._connect() as target, sqlite3.connect(str(temp_db)) as source_db:
+                source_db.backup(target)
+            if (staging / SUMMARY_NAME).exists():
+                self.summary_path.write_bytes((staging / SUMMARY_NAME).read_bytes())
+            staged_workspace = staging / "workspace"
+            if staged_workspace.is_dir():
+                live_workspace = self.root / "yj64-workspace"
+                old_workspace = self.root / ("workspace-old-" + uuid.uuid4().hex)
+                if live_workspace.exists():
+                    os.replace(live_workspace, old_workspace)
                 try:
-                    temp_db.unlink()
-                except OSError:
-                    pass
-
+                    os.replace(staged_workspace, live_workspace)
+                except Exception:
+                    if old_workspace.exists() and not live_workspace.exists():
+                        os.replace(old_workspace, live_workspace)
+                    raise
+                shutil.rmtree(old_workspace, ignore_errors=True)
+            return count
+        finally:
+            try:
+                temp_db.unlink()
+            except OSError:
+                pass
+            shutil.rmtree(staging, ignore_errors=True)
 END ALLOWED
 
 FILE: YJ-64_LOCAL_SKILLS.md BEGIN ALLOWED
@@ -5758,7 +5936,7 @@ Human-readable semantic summary. Structured events, state, and tasks live in `yj
 
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=bb5cda076eb80689e2fed49f247b9c35b2e7f2f7
+EXPECTED-GIT-BLOB-SHA:main.py=05b40486b143a8a38f5ddfb862c13c74ec7ba8bb
 EXPECTED-GIT-BLOB-SHA:llm_api.py=b83f109174e2390670c096a8981570ba9309a2ad
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
@@ -5766,14 +5944,14 @@ EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=5ee183ec43502b0391c3b609795cf2b1de44fca1
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=422fb42b97b17cc50e589f445a01fa5950cb3450
 EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=7eb1fcce0eda30ee0e655833df7d19e1f29e1fcc
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=fdab04fb57763c011e48ec12d6eecd98b680f55b
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=23c16ad82afc62c8096bf1840f72dd8653e78f2c
 EXPECTED-GIT-BLOB-SHA:chat_workspace.py=8a8e9ffaf5f5694c0f7bcdfce5054e43f649864d
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=3edb338deb5f8d3cc8a409cb6a07b757a5dab49b
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
 EXPECTED-GIT-BLOB-SHA:chatgpt_bridge.py=ffb962f4e37dd37f472a6ec85c8932a1de0051ea
 
 EXPECTED-GIT-BLOB-SHA:remote_participant_server.py=1bcf515632fb62154800f9708bbc88f09cc26024
-EXPECTED-GIT-BLOB-SHA:yj64_persistent_core.py=71d484754f6cb130868e4d951040a4335e569e2f
+EXPECTED-GIT-BLOB-SHA:yj64_persistent_core.py=c0e515c49b7bfde78e29ff423e75a6d9de762f8b
 EXPECTED-GIT-BLOB-SHA:YJ-64_LOCAL_SKILLS.md=b2b28ad6a45ecd4e423e4dfa86d7ac182cef1417
 BUILD-TRIGGER-NOTE: Re-run Android APK workflow after synchronizing the exact Guard fragment and expected file hashes.
 
