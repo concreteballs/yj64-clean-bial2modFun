@@ -86,7 +86,7 @@ class ChatTranscript(BoxLayout):
             title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
-            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1), do_scroll_x=False, do_scroll_y=True, scroll_type=["bars", "content"], bar_width=5, bar_color=(0.86,0.91,1,0.95), bar_inactive_color=(0.72,0.80,0.93,0.45))
+            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
             bubble.add_widget(message)
             copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
