@@ -29,14 +29,14 @@ VERSION CONTROL — ЗАЩИЩЁННЫЙ БЛОК НОМЕРА ВЕРСИИ APK
 Модуль 1 — OLD_VERSION:
 0.1.14
 Модуль 2 — NEW_VERSION:
-0.1.17
+0.1.18
 Обязательные условия допуска к сборке:
 1. NEW_VERSION строго больше OLD_VERSION по семантическому сравнению major.minor.patch.
 2. NEW_VERSION точно совпадает со значением version в buildozer.spec.
 3. Если OLD_VERSION == NEW_VERSION, сборка запрещена.
 4. Если версия отсутствует, имеет неверный формат, не увеличена или не совпадает с buildozer.spec, сборка запрещена.
 5. После подтверждённой успешной сборки скопировать NEW_VERSION в OLD_VERSION; затем увеличить NEW_VERSION для следующей сборки и согласовать её с buildozer.spec только при подготовке следующего APK.
-6. Последняя подтверждённая версия перед текущей сборкой — 0.1.14; версия следующей сборки — 0.1.17. buildozer.spec синхронизирован с NEW_VERSION.
+6. Последняя подтверждённая версия перед текущей сборкой — 0.1.14; версия следующей сборки — 0.1.18. buildozer.spec синхронизирован с NEW_VERSION.
 ============================================================
 
 ============================================================ НАЧАЛО ОПЕРАЦИОННОГО СТОЛА
@@ -130,8 +130,33 @@ class ChatTranscript(BoxLayout):
             title = Label(text=("👤 " if owner else (participant_icon + " " if participant else "ℹ️ ")) + role, size_hint_y=None, height=24, halign="left", valign="middle", color=(0.94,0.97,1,1), bold=True, font_size="12sp")
             title.bind(size=lambda inst, val: setattr(inst, "text_size", (max(1,val[0]-4), val[1])))
             bubble.add_widget(title)
-            message = TextInput(text=body, readonly=True, multiline=True, size_hint_y=None, height=body_height, padding=(7,5), font_size="13sp", background_normal="", background_active="", background_color=color, foreground_color=(0.96,0.97,1,1), cursor_color=(1,1,1,1))
-            bubble.add_widget(message)
+            # Give every reply its own scroll viewport so long answers remain readable
+            # without copying them elsewhere. The outer chat scroll remains independent.
+            message_scroll = ScrollView(
+                size_hint_y=None, height=body_height,
+                do_scroll_x=False, do_scroll_y=True, bar_width=4,
+                scroll_type=["bars", "content"],
+            )
+            message = Label(
+                text=body, size_hint_y=None, halign="left", valign="top",
+                color=(0.96,0.97,1,1), font_size="13sp",
+            )
+            message.bind(
+                width=lambda instance, value: setattr(
+                    instance, "text_size", (max(1, value - 14), None)
+                )
+            )
+            message.bind(
+                texture_size=lambda instance, value: setattr(
+                    instance, "height", max(body_height, value[1] + 14)
+                )
+            )
+            message.height = max(
+                body_height,
+                (len(body.splitlines()) + max(1, len(body) // 42)) * 20 + 18,
+            )
+            message_scroll.add_widget(message)
+            bubble.add_widget(message_scroll)
             copy_button = FeedbackButton(text="⧉ КОПИРОВАТЬ ОТВЕТ", size_hint_y=None, height=30, font_size="10sp", background_normal="", background_color=(0.13,0.31,0.53,1), color=(1,1,1,1))
             copy_button.bind(on_release=lambda _btn, content=body: self._copy(content))
             bubble.add_widget(copy_button)
@@ -230,6 +255,8 @@ class YJ64BaseApp(App):
         self.dialogue_stop_event = None
         self.dialogue_worker_active = False
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
+        from yj64_persistent_core import PersistentCore
+        self.persistent_core = PersistentCore(self.user_data_dir)
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
 
         self.status = Label(
@@ -1946,6 +1973,11 @@ class YJ64BaseApp(App):
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
+            try:
+                self.persistent_core.record_event(event, data)
+            except Exception:
+                # SQLite is secondary to the primary diagnostic JSONL; never block UI.
+                pass
         except OSError:
             pass
 
@@ -2442,6 +2474,12 @@ class YJ64BaseApp(App):
                                 report=lambda event, _p=name, _r=round_number, **data:
                                     self._append_report("llm_chat_" + event, **{"participant": _p, "round_number": _r, **data}),
                             )
+                            returned_route = str(result.get("route_id") or "")
+                            if returned_route and returned_route != target["route_id"]:
+                                raise RuntimeError(
+                                    f"{name} route mismatch: requested {target['route_id']}, "
+                                    f"received {returned_route}; refusing to display a substituted response"
+                                )
                             response = str(result.get("response") or "").strip()
                             if not response:
                                 raise RuntimeError("Provider returned an empty response; turn marked as failed.")
@@ -2761,6 +2799,7 @@ class YJ64BaseApp(App):
 
 
 YJ64BaseApp().run()
+
 END ALLOWED
 
 ============================================================
@@ -3295,17 +3334,31 @@ def generate_response(
             })
         api_method = "chat_completions"
 
+    request_body_bytes = len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    payload_history = (
+        payload.get("messages") or payload.get("contents")
+        or payload.get("input") or payload.get("inputs") or []
+    )
+    request_history_count = len(payload_history) if isinstance(payload_history, list) else 0
+    request_started = time.monotonic()
+    request_metrics = {
+        "request_body_bytes": request_body_bytes,
+        "history_count": request_history_count,
+    }
     _report(
         report, "gateway_request_prepared",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
         http_method="POST", endpoint=url, prompt=prompt,
-        history_count=len(history or []),
+        history_count=request_history_count, **request_metrics,
     )
     _report(
         report, "gateway_request_sending",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
+        **request_metrics,
     )
     try:
         data = _request("POST", url, headers, payload=payload, report=report)
@@ -3315,13 +3368,17 @@ def generate_response(
             operation_id=operation, route_id=selected_route,
             provider=provider, model=model, mode=selected_mode,
             api_method=api_method, endpoint=url,
+            duration_ms=round((time.monotonic() - request_started) * 1000, 2),
+            **request_metrics,
             error_type=type(exc).__name__, error=str(exc),
         )
         raise
+    duration_ms = round((time.monotonic() - request_started) * 1000, 2)
     _report(
         report, "gateway_http_response_received",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
+        duration_ms=duration_ms, **request_metrics,
     )
 
     response_text = (
@@ -3479,6 +3536,7 @@ def test_all_routes(
     passed = sum(1 for item in results if item["status"] == "PASS")
     report_lines.extend(["", f"Summary: {passed}/{len(results)} connections passed"])
     return {"results": results, "report": "\n".join(report_lines)}
+
 END ALLOWED
 
 
@@ -3983,6 +4041,12 @@ class MessageDistributor:
             history=history,
             operation_id=operation_id,
         )
+        returned_route = str(result.get("route_id") or "")
+        if returned_route and returned_route != route_id:
+            raise RuntimeError(
+                f"{participant_name} route mismatch: requested {route_id}, "
+                f"received {returned_route}; response rejected to prevent silent fallback"
+            )
         if report is not None:
             report(
                 "distributor_response_returned",
@@ -3993,6 +4057,7 @@ class MessageDistributor:
                 response_length=len(result.get("response", "")),
             )
         return result
+
 END ALLOWED
 
 🟡 ИЗМЕНЕНИЕ: GUARD VERIFIER — блокировка Build при несовпадении.
@@ -4147,6 +4212,8 @@ on:
     paths:
       - 'PROTECTED-LINE-GUARD'
       - 'main.py'
+      - 'chat_workspace.py'
+      - 'yj64_persistent_core.py'
       - 'llm_api.py'
       - 'llm_settings.py'
       - 'message_distributor.py'
@@ -4186,7 +4253,8 @@ jobs:
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
         run: |
-          python3 -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py supervised_commercial_intelligence.py tools/verify_guard.py
+          python3 -m py_compile main.py chat_workspace.py yj64_persistent_core.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py supervised_commercial_intelligence.py tools/verify_guard.py
+
 END ALLOWED
 
 🟡 ИЗМЕНЕНИЕ: .github/workflows/android-apk.yml — защищённый технический файл.
@@ -4242,7 +4310,7 @@ jobs:
 
       - name: Validate sources
         run: |
-          python -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py supervised_commercial_intelligence.py tools/verify_guard.py
+          python -m py_compile main.py chat_workspace.py yj64_persistent_core.py remote_participant.py chatgpt_bridge.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py supervised_commercial_intelligence.py tools/verify_guard.py
 
       - name: Clean previous Android build artifacts and logs
         run: |
@@ -4286,6 +4354,7 @@ jobs:
           path: bin/*.apk
           if-no-files-found: warn
           retention-days: 30
+
 END ALLOWED
 
 🟡 ИЗМЕНЕНИЕ: buildozer.spec — защищённый технический файл.
@@ -4296,7 +4365,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.17
+version = 0.1.18
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -4318,6 +4387,7 @@ android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --e
 log_level = 2
 warn_on_root = 1
 bin_dir = ./bin
+
 END ALLOWED
 FILE: chat_workspace.py BEGIN ALLOWED
 """Persistent local workspace for YJ-64 chats, threads, and skills."""
@@ -5487,22 +5557,224 @@ class CalibrationGround:
     def records(self) -> tuple[tuple[float, bool, float], ...]:
         return tuple(self._records)
 END ALLOWED
+
+FILE: yj64_persistent_core.py BEGIN ALLOWED
+"""YJ-64 persistent event, state, task and archive core.
+
+Independent of Kivy. Structured records live in SQLite; a concise human-readable
+summary lives beside the database. API credentials must never be stored here.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+import uuid
+import zipfile
+from pathlib import Path
+from typing import Any
+
+SCHEMA = "yj64.persistent_core.v1"
+DB_NAME = "yj64_memory.sqlite3"
+SUMMARY_NAME = "YJ-64_LOCAL_SKILLS.md"
+
+
+class PersistentCore:
+    """Append-only event journal with mutable state/tasks and portable ZIP archives."""
+
+    def __init__(self, data_dir: str | Path) -> None:
+        self.root = Path(data_dir)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.root / DB_NAME
+        self.summary_path = self.root / SUMMARY_NAME
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(str(self.db_path), timeout=10)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
+        return db
+
+    def _initialize(self) -> None:
+        with self._connect() as db:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL UNIQUE,
+                    timestamp_ms INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_events_type_time
+                    ON events(event_type, timestamp_ms);
+                CREATE TABLE IF NOT EXISTS state (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_ms INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    priority TEXT NOT NULL DEFAULT 'normal',
+                    roi TEXT NOT NULL DEFAULT '',
+                    details_json TEXT NOT NULL DEFAULT '{}',
+                    created_ms INTEGER NOT NULL,
+                    updated_ms INTEGER NOT NULL
+                );
+            """)
+        if not self.summary_path.exists():
+            self.summary_path.write_text(
+                "# YJ-64 LOCAL SKILLS\n\n"
+                "Human-readable semantic summary. Do not store API keys, passwords, "
+                "or access tokens here.\n\n"
+                "## Operating rules\n"
+                "- Keep API context bounded and include only recent messages needed.\n"
+                "- Run routine observer ticks locally without LLM calls.\n"
+                "- Record route, request-body bytes, history count, duration and result.\n"
+                "- Never substitute one participant's answer for another participant.\n",
+                encoding="utf-8",
+            )
+
+    def record_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO events(event_id,timestamp_ms,event_type,payload_json) VALUES(?,?,?,?)",
+                (uuid.uuid4().hex, int(time.time() * 1000), str(event_type), encoded),
+            )
+
+    def set_state(self, key: str, value: Any) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO state(key,value_json,updated_ms) VALUES(?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_ms=excluded.updated_ms",
+                (str(key), json.dumps(value, ensure_ascii=False, default=str), int(time.time() * 1000)),
+            )
+
+    def get_state(self, key: str, default: Any = None) -> Any:
+        with self._connect() as db:
+            row = db.execute("SELECT value_json FROM state WHERE key=?", (str(key),)).fetchone()
+        return json.loads(row["value_json"]) if row else default
+
+    def create_task(
+        self, title: str, *, priority: str = "normal", roi: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> str:
+        now = int(time.time() * 1000)
+        task_id = uuid.uuid4().hex
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO tasks(task_id,title,status,priority,roi,details_json,created_ms,updated_ms) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (task_id, str(title), "open", str(priority), str(roi),
+                 json.dumps(details or {}, ensure_ascii=False, default=str), now, now),
+            )
+        return task_id
+
+    def update_task(self, task_id: str, *, status: str | None = None) -> bool:
+        if status is None:
+            return False
+        with self._connect() as db:
+            result = db.execute(
+                "UPDATE tasks SET status=?,updated_ms=? WHERE task_id=?",
+                (str(status), int(time.time() * 1000), str(task_id)),
+            )
+            return result.rowcount == 1
+
+    def list_tasks(self, status: str | None = None) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM tasks"
+        params: tuple[Any, ...] = ()
+        if status:
+            sql += " WHERE status=?"
+            params = (status,)
+        sql += " ORDER BY updated_ms DESC"
+        with self._connect() as db:
+            rows = db.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def export_archive(self, destination: str | Path) -> str:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temp_db = self.root / ("export-" + uuid.uuid4().hex + ".sqlite3")
+        try:
+            with self._connect() as source, sqlite3.connect(str(temp_db)) as target:
+                source.backup(target)
+            with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.write(temp_db, DB_NAME)
+                if self.summary_path.exists():
+                    archive.write(self.summary_path, SUMMARY_NAME)
+                archive.writestr(
+                    "manifest.json",
+                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000}),
+                               ensure_ascii=False),
+                )
+        finally:
+            try:
+                temp_db.unlink()
+            except OSError:
+                pass
+        return str(destination)
+
+    def import_archive(self, source: str | Path) -> int:
+        with zipfile.ZipFile(source, "r") as archive:
+            names = set(archive.namelist())
+            if "manifest.json" not in names or DB_NAME not in names:
+                raise ValueError("Archive is missing the YJ-64 manifest or SQLite database")
+            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+            if manifest.get("schema") != SCHEMA:
+                raise ValueError("Unsupported YJ-64 archive schema")
+            temp_db = self.root / ("import-" + uuid.uuid4().hex + ".sqlite3")
+            temp_db.write_bytes(archive.read(DB_NAME))
+            try:
+                with sqlite3.connect(str(temp_db)) as imported:
+                    count = int(imported.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+                    imported.execute("SELECT key FROM state LIMIT 1").fetchall()
+                with self._connect() as target, sqlite3.connect(str(temp_db)) as source_db:
+                    source_db.backup(target)
+                if SUMMARY_NAME in names:
+                    self.summary_path.write_bytes(archive.read(SUMMARY_NAME))
+                return count
+            finally:
+                try:
+                    temp_db.unlink()
+                except OSError:
+                    pass
+
+END ALLOWED
+
+FILE: YJ-64_LOCAL_SKILLS.md BEGIN ALLOWED
+# YJ-64 LOCAL SKILLS
+
+Human-readable semantic summary. Structured events, state, and tasks live in `yj64_memory.sqlite3`.
+
+## Operating rules
+- Do not store API keys, passwords, or access tokens in summaries.
+- Keep API context bounded; include only the recent messages needed.
+- Run routine observer ticks locally without LLM calls.
+- Record route, request-body byte count, history count, duration, and result.
+- Never substitute one participant's answer for another participant.
+- Keep the full diagnostic archive separate from short semantic summaries.
+
+END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=115c759b62dd43485e48d6a082776f88aab81e04
-EXPECTED-GIT-BLOB-SHA:llm_api.py=c7c591e185e9bf1c40e9c0c000fc02e4ee86eec8
+EXPECTED-GIT-BLOB-SHA:main.py=bb5cda076eb80689e2fed49f247b9c35b2e7f2f7
+EXPECTED-GIT-BLOB-SHA:llm_api.py=b83f109174e2390670c096a8981570ba9309a2ad
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
-EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
-EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=ab183536c70363a913b128b249a49b596357b6dd
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=1d78238bbc6441b4ba470a8cb1826f2a20b8eafd
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=ba394231610a35d4168c207e3c082dc4cb324f2c
+EXPECTED-GIT-BLOB-SHA:message_distributor.py=5ee183ec43502b0391c3b609795cf2b1de44fca1
+EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=422fb42b97b17cc50e589f445a01fa5950cb3450
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=7eb1fcce0eda30ee0e655833df7d19e1f29e1fcc
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=fdab04fb57763c011e48ec12d6eecd98b680f55b
 EXPECTED-GIT-BLOB-SHA:chat_workspace.py=8a8e9ffaf5f5694c0f7bcdfce5054e43f649864d
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=3edb338deb5f8d3cc8a409cb6a07b757a5dab49b
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
 EXPECTED-GIT-BLOB-SHA:chatgpt_bridge.py=ffb962f4e37dd37f472a6ec85c8932a1de0051ea
 
 EXPECTED-GIT-BLOB-SHA:remote_participant_server.py=1bcf515632fb62154800f9708bbc88f09cc26024
+EXPECTED-GIT-BLOB-SHA:yj64_persistent_core.py=15ec93caec497dd0812d7a8d2dd51830634b1fb9
+EXPECTED-GIT-BLOB-SHA:YJ-64_LOCAL_SKILLS.md=b2b28ad6a45ecd4e423e4dfa86d7ac182cef1417
 BUILD-TRIGGER-NOTE: Re-run Android APK workflow after synchronizing the exact Guard fragment and expected file hashes.
 
 EXPECTED-GIT-BLOB-SHA:supervised_commercial_intelligence.py=af1deb9e71a770ee74e98d76be83b7b96ea34d78
