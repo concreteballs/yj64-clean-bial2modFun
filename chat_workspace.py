@@ -24,6 +24,14 @@ class ChatWorkspace:
                 "Do not store API keys, passwords, access tokens, or private credentials here.\n",
                 encoding="utf-8",
             )
+        if not self.agents_path.exists():
+            self.create_agent(
+                "Коммерческий агент",
+                "Исследование и анализ коммерческих возможностей в режиме read-only. "
+                "Показывай предположения, риски, источники и проверяемые шаги. "
+                "Не трать деньги, не связывайся с людьми, не публикуй материалы и не совершай внешних действий.",
+                runner="Participant 1",
+            )
         if not self.index_path.exists():
             self._write_index([])
         if not self.list_chats():
