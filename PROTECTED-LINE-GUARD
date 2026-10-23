@@ -5706,7 +5706,7 @@ class PersistentCore:
                     archive.write(self.summary_path, SUMMARY_NAME)
                 archive.writestr(
                     "manifest.json",
-                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000}),
+                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000)},
                                ensure_ascii=False),
                 )
         finally:
@@ -5773,7 +5773,7 @@ EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
 EXPECTED-GIT-BLOB-SHA:chatgpt_bridge.py=ffb962f4e37dd37f472a6ec85c8932a1de0051ea
 
 EXPECTED-GIT-BLOB-SHA:remote_participant_server.py=1bcf515632fb62154800f9708bbc88f09cc26024
-EXPECTED-GIT-BLOB-SHA:yj64_persistent_core.py=15ec93caec497dd0812d7a8d2dd51830634b1fb9
+EXPECTED-GIT-BLOB-SHA:yj64_persistent_core.py=71d484754f6cb130868e4d951040a4335e569e2f
 EXPECTED-GIT-BLOB-SHA:YJ-64_LOCAL_SKILLS.md=b2b28ad6a45ecd4e423e4dfa86d7ac182cef1417
 BUILD-TRIGGER-NOTE: Re-run Android APK workflow after synchronizing the exact Guard fragment and expected file hashes.
 
