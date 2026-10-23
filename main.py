@@ -1165,9 +1165,15 @@ class YJ64BaseApp(App):
                 return
             prompt.text = ""
             self.workspace.save_agent_message(agent_id, "owner", message)
-            self._append_report("agent_private_owner_message", agent_id=agent_id, message=message[:12000])
+            self._append_report(
+                "agent_private_owner_message",
+                agent_id=agent_id,
+                message=message[:12000],
+                executed=False,
+                model_instructions_requested=False,
+            )
             refresh()
-            self._run_agent(agent_id, owner_only=True, extra_owner_message=message, on_complete=refresh)
+            self.status.text = "Сообщение сохранено в личном чате. Агент не запущен; нажми «ЗАПУСТИТЬ АГЕНТА», когда будешь готов."
         send.bind(on_release=send_private)
         run.bind(on_release=lambda *_: self._run_agent(agent_id, owner_only=True, on_complete=refresh))
         close.bind(on_release=lambda *_: popup.dismiss())

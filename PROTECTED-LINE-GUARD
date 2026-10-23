@@ -1209,9 +1209,15 @@ class YJ64BaseApp(App):
                 return
             prompt.text = ""
             self.workspace.save_agent_message(agent_id, "owner", message)
-            self._append_report("agent_private_owner_message", agent_id=agent_id, message=message[:12000])
+            self._append_report(
+                "agent_private_owner_message",
+                agent_id=agent_id,
+                message=message[:12000],
+                executed=False,
+                model_instructions_requested=False,
+            )
             refresh()
-            self._run_agent(agent_id, owner_only=True, extra_owner_message=message, on_complete=refresh)
+            self.status.text = "Сообщение сохранено в личном чате. Агент не запущен; нажми «ЗАПУСТИТЬ АГЕНТА», когда будешь готов."
         send.bind(on_release=send_private)
         run.bind(on_release=lambda *_: self._run_agent(agent_id, owner_only=True, on_complete=refresh))
         close.bind(on_release=lambda *_: popup.dismiss())
@@ -5471,7 +5477,7 @@ class CalibrationGround:
         return tuple(self._records)
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
-EXPECTED-GIT-BLOB-SHA:main.py=35f655d898a1056b364ff4242ed450329b78cc93
+EXPECTED-GIT-BLOB-SHA:main.py=130f6f440ace8b1454eccad70e89d42299fb22ff
 EXPECTED-GIT-BLOB-SHA:llm_api.py=739f043bfe8eeea8a8994bc098c793c839ca00bd
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
