@@ -114,6 +114,80 @@ class ChatWorkspace:
             encoding="utf-8",
         )
 
+    @property
+    def agents_path(self) -> Path:
+        return self.root / "agents.json"
+
+    def list_agents(self) -> list[dict[str, Any]]:
+        try:
+            raw = json.loads(self.agents_path.read_text(encoding="utf-8"))
+            agents = raw.get("agents", []) if isinstance(raw, dict) else []
+            return [item for item in agents if isinstance(item, dict) and item.get("id")]
+        except (OSError, ValueError):
+            return []
+
+    def load_agent(self, agent_id: str) -> dict[str, Any] | None:
+        return next((item for item in self.list_agents() if item.get("id") == agent_id), None)
+
+    def save_agent(self, agent: dict[str, Any]) -> None:
+        """Persist a prompt-driven agent definition and its reviewable code candidate."""
+        agents = self.list_agents()
+        value = dict(agent)
+        value["id"] = str(value.get("id") or uuid.uuid4().hex)
+        value["name"] = str(value.get("name") or "Новый агент")[:100]
+        value["instructions"] = str(value.get("instructions") or "")[:20000]
+        value["code_candidate"] = str(value.get("code_candidate") or "")[:50000]
+        value["private_messages"] = [
+            {"role": str(message.get("role", "owner")),
+             "content": str(message.get("content", ""))[:20000]}
+            for message in value.get("private_messages", [])
+            if isinstance(message, dict)
+        ][-300:]
+        replaced = False
+        for index, current in enumerate(agents):
+            if current.get("id") == value["id"]:
+                agents[index] = value
+                replaced = True
+                break
+        if not replaced:
+            agents.append(value)
+        self.agents_path.parent.mkdir(parents=True, exist_ok=True)
+        self.agents_path.write_text(
+            json.dumps({"schema": "yj64.agents.v1", "agents": agents},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def create_agent(
+        self, name: str, instructions: str, runner: str = "Participant 1"
+    ) -> dict[str, Any]:
+        value = {
+            "id": uuid.uuid4().hex,
+            "name": (name.strip() or "Новый агент")[:100],
+            "instructions": instructions.strip()[:20000],
+            "runner": runner,
+            "code_candidate": "",
+            "sandbox_status": "pending",
+            "private_messages": [],
+            "created_ms": int(time.time() * 1000),
+        }
+        self.save_agent(value)
+        return value
+
+    def save_agent_message(self, agent_id: str, role: str, content: str) -> dict[str, Any] | None:
+        agent = self.load_agent(agent_id)
+        if agent is None:
+            return None
+        messages = list(agent.get("private_messages", []))
+        messages.append({
+            "role": str(role)[:40],
+            "content": str(content)[:20000],
+            "timestamp_ms": int(time.time() * 1000),
+        })
+        agent["private_messages"] = messages[-300:]
+        self.save_agent(agent)
+        return agent
+
     def read_skills(self) -> str:
         return self.skills_path.read_text(encoding="utf-8")
 
