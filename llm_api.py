@@ -43,6 +43,7 @@ def _request(
     headers: dict[str, str],
     timeout: float = 30.0,
     payload: dict[str, Any] | None = None,
+    report: Any = None,
 ) -> dict[str, Any]:
     """Perform a bounded API request with cautious transient-error retries."""
     max_attempts = 5
@@ -80,7 +81,17 @@ def _request(
             except (TypeError, ValueError):
                 pass
             jitter = random.uniform(0.0, min(1.0, delay * 0.25))
-            time.sleep(delay + jitter)
+            wait_seconds = delay + jitter
+            _report(
+                report, "gateway_retry_scheduled",
+                http_status=exc.code,
+                attempt=attempt,
+                next_attempt=attempt + 1,
+                max_attempts=max_attempts,
+                delay_seconds=round(wait_seconds, 2),
+                error_detail=detail[:300],
+            )
+            time.sleep(wait_seconds)
         except URLError as exc:
             last_error = exc
             if method.upper() != "GET" or attempt >= max_attempts:
@@ -529,7 +540,7 @@ def generate_response(
         provider=provider, model=model, api_method=api_method,
     )
     try:
-        data = _request("POST", url, headers, payload=payload)
+        data = _request("POST", url, headers, payload=payload, report=report)
     except Exception as exc:
         _report(
             report, "gateway_request_failed",

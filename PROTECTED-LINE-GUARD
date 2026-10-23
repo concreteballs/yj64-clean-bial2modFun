@@ -29,14 +29,14 @@ VERSION CONTROL — ЗАЩИЩЁННЫЙ БЛОК НОМЕРА ВЕРСИИ APK
 Модуль 1 — OLD_VERSION:
 0.1.14
 Модуль 2 — NEW_VERSION:
-0.1.15
+0.1.16
 Обязательные условия допуска к сборке:
 1. NEW_VERSION строго больше OLD_VERSION по семантическому сравнению major.minor.patch.
 2. NEW_VERSION точно совпадает со значением version в buildozer.spec.
 3. Если OLD_VERSION == NEW_VERSION, сборка запрещена.
 4. Если версия отсутствует, имеет неверный формат, не увеличена или не совпадает с buildozer.spec, сборка запрещена.
 5. После подтверждённой успешной сборки скопировать NEW_VERSION в OLD_VERSION; затем увеличить NEW_VERSION для следующей сборки и согласовать её с buildozer.spec только при подготовке следующего APK.
-6. Последняя подтверждённая версия перед текущей сборкой — 0.1.14; версия следующей сборки — 0.1.15. buildozer.spec синхронизирован с NEW_VERSION.
+6. Последняя подтверждённая версия перед текущей сборкой — 0.1.14; версия следующей сборки — 0.1.16. buildozer.spec синхронизирован с NEW_VERSION.
 ============================================================
 
 ============================================================ НАЧАЛО ОПЕРАЦИОННОГО СТОЛА
@@ -2811,6 +2811,7 @@ def _request(
     headers: dict[str, str],
     timeout: float = 30.0,
     payload: dict[str, Any] | None = None,
+    report: Any = None,
 ) -> dict[str, Any]:
     """Perform a bounded API request with cautious transient-error retries."""
     max_attempts = 5
@@ -2848,7 +2849,17 @@ def _request(
             except (TypeError, ValueError):
                 pass
             jitter = random.uniform(0.0, min(1.0, delay * 0.25))
-            time.sleep(delay + jitter)
+            wait_seconds = delay + jitter
+            _report(
+                report, "gateway_retry_scheduled",
+                http_status=exc.code,
+                attempt=attempt,
+                next_attempt=attempt + 1,
+                max_attempts=max_attempts,
+                delay_seconds=round(wait_seconds, 2),
+                error_detail=detail[:300],
+            )
+            time.sleep(wait_seconds)
         except URLError as exc:
             last_error = exc
             if method.upper() != "GET" or attempt >= max_attempts:
@@ -3297,7 +3308,7 @@ def generate_response(
         provider=provider, model=model, api_method=api_method,
     )
     try:
-        data = _request("POST", url, headers, payload=payload)
+        data = _request("POST", url, headers, payload=payload, report=report)
     except Exception as exc:
         _report(
             report, "gateway_request_failed",
@@ -4285,7 +4296,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.15
+version = 0.1.16
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -5478,14 +5489,14 @@ class CalibrationGround:
 END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
 EXPECTED-GIT-BLOB-SHA:main.py=130f6f440ace8b1454eccad70e89d42299fb22ff
-EXPECTED-GIT-BLOB-SHA:llm_api.py=739f043bfe8eeea8a8994bc098c793c839ca00bd
+EXPECTED-GIT-BLOB-SHA:llm_api.py=c7c591e185e9bf1c40e9c0c000fc02e4ee86eec8
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
 EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=74f654c38ca98c51906586a334b501ae2bb56a61
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=677497dbe14db1f41459998e4e48ce5cd7d6e86b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=ab183536c70363a913b128b249a49b596357b6dd
 EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=1d78238bbc6441b4ba470a8cb1826f2a20b8eafd
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=64004e5a7e8fe093af377f3c16a866e02f5d67a5
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=b78d58403c4851b565daacb1b8bbec17ec5a7203
 EXPECTED-GIT-BLOB-SHA:chat_workspace.py=8a8e9ffaf5f5694c0f7bcdfce5054e43f649864d
 EXPECTED-GIT-BLOB-SHA:remote_participant.py=3edb338deb5f8d3cc8a409cb6a07b757a5dab49b
 EXPECTED-GIT-BLOB-SHA:skills.md=6898bbfa30bdf3a6742e358cb7462d098c2620e0
