@@ -6,6 +6,8 @@ on:
     paths:
       - 'PROTECTED-LINE-GUARD'
       - 'main.py'
+      - 'chat_workspace.py'
+      - 'yj64_persistent_core.py'
       - 'llm_api.py'
       - 'llm_settings.py'
       - 'message_distributor.py'
@@ -45,4 +47,4 @@ jobs:
           python3 tools/verify_guard.py
       - name: Compile protected Python modules
         run: |
-          python3 -m py_compile main.py chat_workspace.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py supervised_commercial_intelligence.py tools/verify_guard.py
+          python3 -m py_compile main.py chat_workspace.py yj64_persistent_core.py remote_participant.py chatgpt_bridge.py llm_api.py llm_settings.py message_distributor.py remote_participant_server.py supervised_commercial_intelligence.py tools/verify_guard.py
