@@ -4224,7 +4224,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.20
+version = 0.1.21
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -4246,7 +4246,6 @@ android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --e
 log_level = 2
 warn_on_root = 1
 bin_dir = ./bin
-
 END ALLOWED
 
 FILE: android_src/MonitorActivity.java BEGIN ALLOWED
@@ -4836,6 +4835,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -4872,11 +4876,6 @@ jobs:
           fi
           stat -c '%n %s bytes' "$APK"
           sha256sum "$APK"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: false
 
       - name: Build standalone YJ-64 Monitor APK
         run: |
@@ -5397,12 +5396,12 @@ android {
         applicationId 'org.blackmirror.yj64monitor'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0.0'
+        versionCode 2
+        versionName '1.0.1'
     }
 }
 END ALLOWED
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=5c786acf34a6b0041861d226840c28ea6885fc80
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=26cbbe6f546d2f2f8e14c668730ea340646f13c0
 EXPECTED-GIT-BLOB-SHA:main.py=3647888218d7ea95e30298a22f9fae04c6180c9a
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
@@ -5410,9 +5409,9 @@ EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=41db6a5819d8f5134e9f5abdc
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=887269e44f5fbffc093de87d02e7bf960f3e138b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=295307267609aea347e7b1ee7c668a5139d96f9c
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=4d9b379009e156128362549227d43546cc5b2812
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=480684487be8f3059b6cdb49392f73c4d047b069
 EXPECTED-GIT-BLOB-SHA:monitor-app/settings.gradle=8947fd008921eaa4e6667b75bfde20d21d3572ae
 EXPECTED-GIT-BLOB-SHA:monitor-app/build.gradle=5b7ccba7c566afb5057eaea1b10b99b083851fe4
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=ce04232cadffee5c51ed1ad432531f2932b33348
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=a9d24a3046292e43c8c0b81a70b627abed47f1e0
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=36c11536d0ec2cc32534af7c8a6d3d1ea8a3cbd7
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=f93afa4cd41ebd25cb884eb240315d77cec1cde9
