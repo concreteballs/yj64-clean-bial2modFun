@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <permission android:name="org.blackmirror.yj64monitor.permission.RECEIVE_REPORT" android:protectionLevel="signature" />
     <queries>
         <package android:name="org.blackmirror.blackmirror" />
     </queries>
@@ -18,5 +19,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name=".DiagnosticReportProvider"
+            android:authorities="org.blackmirror.yj64monitor.diagnostics"
+            android:exported="true"
+            android:permission="org.blackmirror.yj64monitor.permission.RECEIVE_REPORT" />
     </application>
 </manifest>
