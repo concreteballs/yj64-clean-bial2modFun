@@ -32,15 +32,10 @@ import java.io.InputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.text.SimpleDateFormat;
@@ -62,17 +57,12 @@ public class MonitorActivity extends Activity {
     private static final String REPORT_PATH = "yj64-reports/yj64-report.jsonl";
     private static final String KEY_ALIAS = "yj64_standalone_monitor_github_key";
     private static final String TOKEN_FILE = "yj64-github-token.enc";
-    private static final String BRIDGE_TOKEN = "yj64-dev-bridge-v1";
-    private static final int BRIDGE_PORT = 9333;
-    private static volatile boolean bridgeRunning = false;
-    private static ServerSocket bridgeServer;
     private TextView status;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         appendEvent("monitor_started", "{\"package\":\"" + TARGET_PACKAGE + "\"}");
         buildUi();
-        startBridgeServer();
         refreshDiagnostics();
     }
 
@@ -130,90 +120,6 @@ public class MonitorActivity extends Activity {
                 out.getFD().sync();
             }
         } catch (Exception ignored) { }
-    }
-
-    private void startBridgeServer() {
-        synchronized (MonitorActivity.class) {
-            if (bridgeRunning) return;
-            try {
-                ServerSocket server = new ServerSocket();
-                server.setReuseAddress(true);
-                server.bind(new InetSocketAddress(
-                    InetAddress.getByName("127.0.0.1"), BRIDGE_PORT), 16);
-                bridgeServer = server;
-                bridgeRunning = true;
-                appendEvent("internal_bridge_listening",
-                    new JSONObject().put("host", "127.0.0.1")
-                        .put("port", BRIDGE_PORT).toString());
-                Thread worker = new Thread(() -> bridgeAcceptLoop(server),
-                    "yj64-local-report-bridge");
-                worker.setDaemon(true);
-                worker.start();
-            } catch (Exception e) {
-                appendEvent("internal_bridge_start_failed",
-                    "{\"error_type\":\"" + esc(e.getClass().getName())
-                        + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
-            }
-        }
-    }
-
-    private void bridgeAcceptLoop(ServerSocket server) {
-        while (!server.isClosed()) {
-            try {
-                Socket client = server.accept();
-                receiveBridgeReport(client);
-            } catch (Exception e) {
-                if (!server.isClosed()) {
-                    appendEvent("internal_bridge_accept_failed",
-                        "{\"error_type\":\"" + esc(e.getClass().getName())
-                            + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
-                }
-            }
-        }
-    }
-
-    private void receiveBridgeReport(Socket client) {
-        String reportId = "";
-        try (Socket socket = client) {
-            socket.setSoTimeout(5000);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(
-                socket.getInputStream(), StandardCharsets.UTF_8));
-            String line = reader.readLine();
-            if (line == null || line.length() > 131072) {
-                throw new IOException("empty_or_oversized_bridge_envelope");
-            }
-            JSONObject envelope = new JSONObject(line);
-            if (!BRIDGE_TOKEN.equals(envelope.optString("token", ""))) {
-                throw new SecurityException("invalid_local_bridge_token");
-            }
-            JSONObject report = envelope.getJSONObject("report");
-            reportId = report.optString("report_id",
-                report.optString("message_id", ""));
-            if (reportId.isEmpty()) throw new IOException("report_id_missing");
-            report.put("_bridge_received_at_ms", System.currentTimeMillis());
-            File file = reportFile();
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                throw new IOException("report_directory_unavailable");
-            }
-            try (FileOutputStream out = new FileOutputStream(file, true)) {
-                out.write((report.toString() + "\n").getBytes(StandardCharsets.UTF_8));
-                out.flush();
-                out.getFD().sync();
-            }
-            JSONObject ack = new JSONObject().put("ok", true).put("report_id", reportId);
-            PrintWriter writer = new PrintWriter(new OutputStreamWriter(
-                socket.getOutputStream(), StandardCharsets.UTF_8), true);
-            writer.println(ack.toString());
-            appendEvent("internal_bridge_report_received",
-                new JSONObject().put("report_id", reportId)
-                    .put("agent", report.optString("agent", "unknown")).toString());
-        } catch (Exception e) {
-            appendEvent("internal_bridge_receive_failed",
-                "{\"report_id\":\"" + esc(reportId)
-                    + "\",\"error_type\":\"" + esc(e.getClass().getName())
-                    + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
-        }
     }
 
     private String readReport() {
