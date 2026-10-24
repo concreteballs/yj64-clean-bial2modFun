@@ -69,9 +69,11 @@ def send_bridge(
                 return False
 
             ack = json.loads(response)
+            report_id = str(report.get("report_id") or report.get("message_id") or "")
             return (
-                ack.get("ok") is True
-                and ack.get("report_id") == report["report_id"]
+                bool(report_id)
+                and ack.get("ok") is True
+                and ack.get("report_id") == report_id
             )
     except (OSError, ValueError, TypeError):
         return False
@@ -79,23 +81,15 @@ def send_bridge(
 
 def send_with_retry(config: dict[str, Any], report: dict[str, Any]) -> bool:
     bridge = config["bridge"]
-    attempts = int(bridge["retry_count"])
-    delay = float(bridge["retry_delay_seconds"])
-
-    for attempt in range(max(1, attempts)):
-        if send_bridge(
-            str(bridge["host"]),
-            int(bridge["port"]),
-            str(bridge["token"]),
-            float(bridge["connect_timeout_seconds"]),
-            report,
-        ):
-            return True
-
-        if attempt + 1 < attempts:
-            time.sleep(delay)
-
-    return False
+    # Startup must not stall for several seconds when the standalone monitor
+    # is not open. The tail-forwarder below retries the persisted report later.
+    return send_bridge(
+        str(bridge["host"]),
+        int(bridge["port"]),
+        str(bridge["token"]),
+        min(float(bridge["connect_timeout_seconds"]), 0.35),
+        report,
+    )
 
 
 def upload_https(
@@ -201,6 +195,46 @@ def send_report_or_spool(
     return bridge_ok
 
 
+def forward_spool_reports(
+    config: dict[str, Any],
+    spool: Path,
+    offset: int,
+) -> int:
+    """Forward persisted base-app JSONL records in order; retain offset on failure."""
+    if not spool.is_file():
+        return 0
+    bridge = config["bridge"]
+    try:
+        with spool.open("r", encoding="utf-8") as handle:
+            handle.seek(offset)
+            while True:
+                line_start = handle.tell()
+                line = handle.readline()
+                if not line:
+                    return handle.tell()
+                try:
+                    report = json.loads(line)
+                except ValueError:
+                    # Skip a malformed or partial record without blocking later lines.
+                    offset = handle.tell()
+                    continue
+                if not isinstance(report, dict):
+                    offset = handle.tell()
+                    continue
+                delivered = send_bridge(
+                    str(bridge["host"]),
+                    int(bridge["port"]),
+                    str(bridge["token"]),
+                    min(float(bridge["connect_timeout_seconds"]), 0.35),
+                    report,
+                )
+                if not delivered:
+                    return line_start
+                offset = handle.tell()
+    except OSError:
+        return offset
+
+
 def run() -> None:
     PythonService = autoclass("org.kivy.android.PythonService")
     service = PythonService.mService
@@ -277,8 +311,13 @@ def run() -> None:
         },
     )
 
+    # The service and the Python UI share this app's private files directory.
+    # Stream Base JSONL events to the standalone monitor; if it is unavailable,
+    # keep the current offset so the same event is retried after the monitor opens.
+    report_offset = 0
     while True:
-        time.sleep(30)
+        report_offset = forward_spool_reports(config, spool, report_offset)
+        time.sleep(1.0)
 
 
 run()
