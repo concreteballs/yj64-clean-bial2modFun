@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import threading
+import traceback
 import time
 import uuid
 from pathlib import Path
@@ -213,6 +216,11 @@ class YJ64BaseApp(App):
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
         from yj64_persistent_core import PersistentCore
         self.persistent_core = PersistentCore(self.user_data_dir)
+        self._previous_excepthook = sys.excepthook
+        sys.excepthook = self._handle_uncaught_exception
+        self._previous_thread_excepthook = getattr(threading, "excepthook", None)
+        if hasattr(threading, "excepthook"):
+            threading.excepthook = self._handle_uncaught_thread_exception
         self._archive_export_path = None
         self._archive_restore_prompt_path = Path(self.user_data_dir) / "yj64-restore-prompted.json"
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
@@ -2079,6 +2087,44 @@ class YJ64BaseApp(App):
         except OSError:
             pass
 
+    def _handle_uncaught_exception(self, exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+        try:
+            formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            self._append_report(
+                "python_uncaught_exception",
+                error_type=getattr(exc_type, "__name__", str(exc_type)),
+                message=str(exc_value),
+                traceback=formatted[-24000:],
+                pid=os.getpid(),
+                process_name=self._process_name(),
+                thread_name=threading.current_thread().name,
+            )
+        except Exception:
+            pass
+        previous = getattr(self, "_previous_excepthook", None)
+        if previous is not None and previous is not self._handle_uncaught_exception:
+            previous(exc_type, exc_value, exc_tb)
+
+    def _handle_uncaught_thread_exception(self, args: Any) -> None:
+        try:
+            formatted = "".join(traceback.format_exception(
+                args.exc_type, args.exc_value, args.exc_traceback
+            ))
+            self._append_report(
+                "python_uncaught_thread_exception",
+                error_type=getattr(args.exc_type, "__name__", str(args.exc_type)),
+                message=str(args.exc_value),
+                traceback=formatted[-24000:],
+                pid=os.getpid(),
+                process_name=self._process_name(),
+                thread_name=getattr(args.thread, "name", "unknown"),
+            )
+        except Exception:
+            pass
+        previous = getattr(self, "_previous_thread_excepthook", None)
+        if previous is not None:
+            previous(args)
+
     def _open_monitor(self, *_: Any) -> None:
         self._append_report(
             "internal_monitor_window_requested",
@@ -2867,6 +2913,13 @@ class YJ64BaseApp(App):
             service_class = autoclass(SERVICE_CLASS)
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             service_class.start(activity, "")
+            self._append_report(
+                "base_bootstrap_handoff_to_internal_agent",
+                pid=os.getpid(),
+                process_name=self._process_name(),
+                initial_activity_will_finish=True,
+            )
+            Clock.schedule_once(lambda *_: activity.finish(), 0.15)
             self.status.text = (
                 "Diagnostic agent starting first; waiting for self-diagnostic "
                 "and bridge handshake..."
