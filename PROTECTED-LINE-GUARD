@@ -19,7 +19,7 @@
 ТОЧКА ЗАПУСКА BUILD: Android Build должен запускаться только изменением PROTECTED-LINE-GUARD. Изменения любых других файлов сами по себе не должны автоматически запускать Android Build. Перед сборкой CI обязан проверить точное совпадение каждого разрешённого фрагмента Guard с соответствующим рабочим файлом. При расхождении Build должен завершиться до build-time patching.
 ПЕРЕД КАЖДЫМ РЕДАКТИРОВАНИЕМ: Сначала показать пользователю предлагаемые изменения и получить явное согласование. Не редактировать рабочий файл до согласования.
 ============================================================ НАЧАЛО ОПЕРАЦИОННОГО СТОЛА
-🟢 ВОССТАНОВЛЕНИЕ: точные исходники предыдущей рабочей сборки; Guard обновлён первым, рабочие файлы скопированы после него.
+🟡 АРХИТЕКТУРНОЕ ИСПРАВЛЕНИЕ: отдельный YJ-64 Monitor APK запускается независимо и может запускать базовое приложение; Guard обновляется до копирования файлов.
 FILE: main.py BEGIN ALLOWED
 """YJ-64 minimal base application with an embedded diagnostic agent."""
 
@@ -4795,6 +4795,605 @@ public class MonitorActivity extends Activity {
 }
 
 END ALLOWED
+
+FILE: .github/workflows/android-apk.yml BEGIN ALLOWED
+name: YJ-64 Base and Standalone Monitor Android APKs
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'PROTECTED-LINE-GUARD'
+  workflow_dispatch:
+
+concurrency:
+  group: yj64-base-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build YJ-64 Base and Standalone Monitor APKs
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify PROTECTED-LINE-GUARD
+        run: |
+          python3 tools/verify_guard.py
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git zip unzip autoconf automake libtool libltdl-dev pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev build-essential gettext autopoint
+
+      - name: Install Buildozer and Cython
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install buildozer cython==0.29.36
+
+      - name: Validate Python sources
+        run: |
+          python -m py_compile main.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py
+
+      - name: Clean previous Android build artifacts and logs
+        run: |
+          rm -rf bin .buildozer
+          rm -f build.log buildozer.log
+          mkdir -p bin
+
+      - name: Build YJ-64 Base APK
+        run: |
+          export ACLOCAL_PATH="/usr/share/aclocal"
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Validate base APK output
+        run: |
+          set -e
+          APK=$(find bin -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "ERROR: no base APK was produced"
+            exit 1
+          fi
+          stat -c '%n %s bytes' "$APK"
+          sha256sum "$APK"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build standalone YJ-64 Monitor APK
+        run: |
+          gradle --no-daemon --project-dir monitor-app assembleDebug
+          test -f monitor-app/app/build/outputs/apk/debug/app-debug.apk
+          stat -c '%n %s bytes' monitor-app/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum monitor-app/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Build log
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: yj64-base-build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload YJ-64 Base APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yj64-base-apk
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload standalone YJ-64 Monitor APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yj64-monitor-apk
+          path: monitor-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+END ALLOWED
+
+FILE: monitor-app/settings.gradle BEGIN ALLOWED
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "YJ64StandaloneMonitor"
+include(":app")
+END ALLOWED
+
+FILE: monitor-app/build.gradle BEGIN ALLOWED
+plugins {
+    id 'com.android.application' version '8.7.3'
+}
+
+android {
+    namespace 'org.blackmirror.yj64monitor'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.blackmirror.yj64monitor'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+    }
+}
+END ALLOWED
+
+FILE: monitor-app/app/src/main/AndroidManifest.xml BEGIN ALLOWED
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <package android:name="org.blackmirror.blackmirror" />
+    </queries>
+    <application
+        android:allowBackup="false"
+        android:label="YJ-64 Monitor"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="false">
+        <activity
+            android:name=".MonitorActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+END ALLOWED
+
+FILE: monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java BEGIN ALLOWED
+package org.blackmirror.yj64monitor;
+
+import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+import android.os.Bundle;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
+public class MonitorActivity extends Activity {
+    private static final String TARGET_PACKAGE = "org.blackmirror.blackmirror";
+    private static final String OWNER = "concreteballs";
+    private static final String REPO = "yj64-clean-bial2modFun";
+    private static final String BRANCH = "main";
+    private static final String REPORT_PATH = "yj64-reports/yj64-report.jsonl";
+    private static final String KEY_ALIAS = "yj64_standalone_monitor_github_key";
+    private static final String TOKEN_FILE = "yj64-github-token.enc";
+    private TextView status;
+
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        appendEvent("monitor_started", "{\"package\":\"" + TARGET_PACKAGE + "\"}");
+        buildUi();
+        refreshDiagnostics();
+    }
+
+    private void buildUi() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(28, 24, 28, 24);
+
+        TextView title = new TextView(this);
+        title.setText("YJ-64 Monitor");
+        title.setTextSize(26);
+        title.setPadding(0, 0, 0, 12);
+        root.addView(title, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        status = new TextView(this);
+        status.setTextSize(14);
+        status.setTextIsSelectable(true);
+        root.addView(status, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        addButton(root, "LAUNCH YJ-64", v -> launchBase());
+        addButton(root, "REFRESH CRASH REPORT", v -> refreshDiagnostics());
+        addButton(root, "COPY DIAGNOSTIC REPORT", v -> copyReport());
+        addButton(root, "CONFIGURE GITHUB UPLOAD", v -> configureToken());
+        addButton(root, "UPLOAD REPORT TO GITHUB", v -> confirmUpload());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        setContentView(scroll);
+    }
+
+    private void addButton(LinearLayout root, String text, android.view.View.OnClickListener listener) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setOnClickListener(listener);
+        root.addView(button, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    private File reportFile() {
+        File dir = new File(getFilesDir(), "yj64-reports");
+        if (!dir.exists()) dir.mkdirs();
+        return new File(dir, "yj64-report.jsonl");
+    }
+
+    private void appendEvent(String event, String dataJson) {
+        JSONObject row = new JSONObject();
+        try {
+            row.put("schema", "yj64.diagnostic.v1");
+            row.put("agent", "yj64-standalone-monitor");
+            row.put("event", event);
+            row.put("timestamp_ms", System.currentTimeMillis());
+            row.put("report_id", UUID.randomUUID().toString().replace("-", ""));
+            row.put("data", new JSONObject(dataJson));
+            try (FileOutputStream out = new FileOutputStream(reportFile(), true)) {
+                out.write((row.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+                out.getFD().sync();
+            }
+        } catch (Exception ignored) { }
+    }
+
+    private String readReport() {
+        File file = reportFile();
+        StringBuilder result = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) result.append(line).append('\n');
+        } catch (Exception e) {
+            return "Report read failed: " + e.getClass().getSimpleName();
+        }
+        return result.toString();
+    }
+
+    private void launchBase() {
+        appendEvent("base_launch_requested", "{\"target_package\":\"" + TARGET_PACKAGE + "\"}");
+        try {
+            Intent intent = getPackageManager().getLaunchIntentForPackage(TARGET_PACKAGE);
+            if (intent == null) {
+                appendEvent("base_launch_failed", "{\"reason\":\"package_not_installed_or_not_visible\"}");
+                status.setText("YJ-64 is not installed or Android did not expose its launch activity.\n\n" + reportSummary());
+                Toast.makeText(this, "YJ-64 launch activity not found", Toast.LENGTH_LONG).show();
+                return;
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            appendEvent("base_launch_activity_started", "{\"success\":true}");
+            status.setText("Launch request sent to YJ-64. Return here after a crash and press REFRESH CRASH REPORT.\n\n" + reportSummary());
+        } catch (Exception e) {
+            appendEvent("base_launch_failed", "{\"error_type\":\"" + esc(e.getClass().getSimpleName()) + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
+            status.setText("Launch failed: " + e.getClass().getSimpleName() + "\n\n" + reportSummary());
+        }
+    }
+
+    private String reportSummary() {
+        return "Monitor report: " + reportFile().getAbsolutePath()
+                + "\nTarget package: " + TARGET_PACKAGE
+                + "\nGitHub destination: " + OWNER + "/" + REPO + "/" + "Report";
+    }
+
+    private void refreshDiagnostics() {
+        StringBuilder text = new StringBuilder();
+        text.append("MONITOR ALIVE\nPackage: ").append(getPackageName())
+            .append("\nPID: ").append(android.os.Process.myPid())
+            .append("\n\n").append(reportSummary()).append("\n\n");
+        appendEvent("crash_check_started", "{\"target_package\":\"" + TARGET_PACKAGE + "\"}");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+                List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(TARGET_PACKAGE, 0, 10);
+                text.append("Recent target process exits (newest first):\n");
+                if (exits == null || exits.isEmpty()) {
+                    text.append("No Android process-exit records are available yet.\n");
+                    appendEvent("crash_check_no_records", "{\"target_package\":\"" + TARGET_PACKAGE + "\"}");
+                } else {
+                    JSONArray found = new JSONArray();
+                    for (ApplicationExitInfo info : exits) {
+                        JSONObject item = new JSONObject();
+                        item.put("timestamp_ms", info.getTimestamp());
+                        item.put("reason_code", info.getReason());
+                        item.put("reason", reasonName(info.getReason()));
+                        item.put("status", info.getStatus());
+                        item.put("importance", info.getImportance());
+                        item.put("process_name", info.getProcessName());
+                        item.put("description", String.valueOf(info.getDescription()));
+                        found.put(item);
+                        text.append("\n• ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                                .format(new Date(info.getTimestamp())))
+                            .append(" — ").append(reasonName(info.getReason()))
+                            .append(" (status ").append(info.getStatus()).append(")")
+                            .append("\n  Process: ").append(info.getProcessName())
+                            .append("\n  ").append(info.getDescription()).append("\n");
+                        String trace = readTrace(info);
+                        if (!trace.isEmpty()) {
+                            text.append("  Trace excerpt:\n").append(trace).append("\n");
+                            item.put("trace_excerpt", trace);
+                        }
+                    }
+                    appendEvent("target_process_exits_collected", new JSONObject()
+                        .put("target_package", TARGET_PACKAGE).put("exits", found).toString());
+                }
+            } catch (Exception e) {
+                text.append("Crash history read failed: ").append(e.getClass().getSimpleName()).append("\n");
+                appendEvent("crash_check_failed", "{\"error_type\":\"" + esc(e.getClass().getSimpleName()) + "\"}");
+            }
+        } else {
+            text.append("Android 11+ is required for historical process exit diagnostics.\n");
+        }
+        status.setText(text.toString());
+    }
+
+    private String readTrace(ApplicationExitInfo info) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return "";
+        try (InputStream input = info.getTraceInputStream()) {
+            if (input == null) return "";
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[2048];
+            int count;
+            while ((count = input.read(buffer)) != -1 && output.size() < 16000) output.write(buffer, 0, count);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        } catch (Exception ignored) { return ""; }
+    }
+
+    private String reasonName(int reason) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            switch (reason) {
+                case ApplicationExitInfo.REASON_CRASH: return "CRASH";
+                case ApplicationExitInfo.REASON_CRASH_NATIVE: return "NATIVE_CRASH";
+                case ApplicationExitInfo.REASON_ANR: return "ANR";
+                case ApplicationExitInfo.REASON_LOW_MEMORY: return "LOW_MEMORY";
+                case ApplicationExitInfo.REASON_SIGNALED: return "SIGNALED";
+                case ApplicationExitInfo.REASON_EXIT_SELF: return "EXIT_SELF";
+                case ApplicationExitInfo.REASON_DEPENDENCY_DIED: return "DEPENDENCY_DIED";
+                case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE: return "INITIALIZATION_FAILURE";
+                case ApplicationExitInfo.REASON_PERMISSION_CHANGE: return "PERMISSION_CHANGE";
+                case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE: return "EXCESSIVE_RESOURCE_USAGE";
+                case ApplicationExitInfo.REASON_USER_REQUESTED: return "USER_REQUESTED";
+                case ApplicationExitInfo.REASON_USER_STOPPED: return "USER_STOPPED";
+                case ApplicationExitInfo.REASON_OTHER: return "OTHER";
+                default: return "REASON_" + reason;
+            }
+        }
+        return "REASON_" + reason;
+    }
+
+    private void copyReport() {
+        String report = readReport();
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText("YJ-64 diagnostic report", report));
+        Toast.makeText(this, "Diagnostic report copied", Toast.LENGTH_LONG).show();
+        appendEvent("diagnostic_report_copied", "{\"characters\":" + report.length() + "}");
+    }
+
+    private SecretKey encryptionKey() throws Exception {
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore");
+        store.load(null);
+        if (store.containsAlias(KEY_ALIAS)) return (SecretKey) store.getKey(KEY_ALIAS, null);
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build());
+        return generator.generateKey();
+    }
+
+    private File tokenFile() { return new File(getFilesDir(), TOKEN_FILE); }
+
+    private void saveToken(String token) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, encryptionKey());
+        byte[] encrypted = cipher.doFinal(token.trim().getBytes(StandardCharsets.UTF_8));
+        byte[] iv = cipher.getIV();
+        byte[] combined = new byte[iv.length + encrypted.length];
+        System.arraycopy(iv, 0, combined, 0, iv.length);
+        System.arraycopy(encrypted, 0, combined, iv.length, encrypted.length);
+        try (FileOutputStream out = new FileOutputStream(tokenFile(), false)) {
+            out.write(Base64.encode(combined, Base64.NO_WRAP));
+            out.getFD().sync();
+        }
+    }
+
+    private String loadToken() throws Exception {
+        if (!tokenFile().isFile()) return "";
+        byte[] combined = Base64.decode(readAll(tokenFile()), Base64.NO_WRAP);
+        if (combined.length <= 12) throw new IllegalStateException("stored token invalid");
+        byte[] iv = java.util.Arrays.copyOfRange(combined, 0, 12);
+        byte[] encrypted = java.util.Arrays.copyOfRange(combined, 12, combined.length);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, encryptionKey(), new GCMParameterSpec(128, iv));
+        return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+    }
+
+    private String readAll(File file) throws Exception {
+        try (FileInputStream in = new FileInputStream(file); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void configureToken() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        input.setHint("Fine-grained GitHub token");
+        new AlertDialog.Builder(this).setTitle("GitHub report upload")
+            .setMessage("Create a fine-grained token limited to " + OWNER + "/" + REPO + " with Contents: Read and write. It is encrypted with Android Keystore and is not embedded in this APK.")
+            .setView(input).setNegativeButton("CANCEL", (d, w) -> d.dismiss())
+            .setPositiveButton("SAVE TOKEN", (d, w) -> {
+                String token = input.getText().toString().trim();
+                if (token.isEmpty()) return;
+                try {
+                    saveToken(token);
+                    appendEvent("github_report_token_saved", "{\"encrypted\":true}");
+                    Toast.makeText(this, "Token saved securely on this device", Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    Toast.makeText(this, "Token save failed: " + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show();
+                }
+            }).show();
+    }
+
+    private void confirmUpload() {
+        new AlertDialog.Builder(this).setTitle("Upload diagnostic report?")
+            .setMessage("The complete diagnostic report will be uploaded to the PUBLIC repository " + OWNER + "/" + REPO + " at Report. It may contain system crash details. Continue only if you agree to publish it.")
+            .setNegativeButton("CANCEL", (d, w) -> d.dismiss())
+            .setPositiveButton("UPLOAD", (d, w) -> uploadReport()).show();
+    }
+
+    private void uploadReport() {
+        final String token;
+        try { token = loadToken(); }
+        catch (Exception e) {
+            Toast.makeText(this, "Could not decrypt token; configure it again", Toast.LENGTH_LONG).show();
+            configureToken();
+            return;
+        }
+        if (token.isEmpty()) {
+            Toast.makeText(this, "Configure a GitHub token first", Toast.LENGTH_LONG).show();
+            configureToken();
+            return;
+        }
+        final String content = readReport();
+        status.setText("Uploading diagnostic report to GitHub...");
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                String api = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/Report";
+                String existingSha = "";
+                HttpURLConnection lookup = (HttpURLConnection) new URL(api + "?ref=" + BRANCH).openConnection();
+                lookup.setRequestMethod("GET");
+                lookup.setConnectTimeout(15000);
+                lookup.setReadTimeout(20000);
+                lookup.setRequestProperty("Authorization", "Bearer " + token);
+                lookup.setRequestProperty("Accept", "application/vnd.github+json");
+                lookup.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+                int lookupCode = lookup.getResponseCode();
+                if (lookupCode == 200) existingSha = new JSONObject(readStream(lookup.getInputStream())).optString("sha", "");
+                else if (lookupCode != 404) throw new IllegalStateException("GitHub lookup HTTP " + lookupCode);
+                lookup.disconnect();
+
+                JSONObject payload = new JSONObject();
+                payload.put("message", "Update YJ-64 standalone monitor diagnostic report");
+                payload.put("content", Base64.encodeToString(content.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+                payload.put("branch", BRANCH);
+                if (!existingSha.isEmpty()) payload.put("sha", existingSha);
+
+                connection = (HttpURLConnection) new URL(api).openConnection();
+                connection.setRequestMethod("PUT");
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                try (OutputStream out = connection.getOutputStream()) {
+                    out.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                int code = connection.getResponseCode();
+                String response = readStream(code >= 200 && code < 400 ? connection.getInputStream() : connection.getErrorStream());
+                if (code < 200 || code >= 300) throw new IllegalStateException("GitHub upload HTTP " + code + ": " + response);
+                JSONObject json = new JSONObject(response);
+                String htmlUrl = json.optJSONObject("content") == null ? "" : json.optJSONObject("content").optString("html_url", "");
+                appendEvent("diagnostic_report_uploaded", "{\"success\":true,\"http_status\":" + code + "}");
+                runOnUiThread(() -> {
+                    status.setText("Report uploaded successfully.\n" + htmlUrl + "\n\n" + reportSummary());
+                    Toast.makeText(this, "Report uploaded to GitHub", Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception e) {
+                appendEvent("diagnostic_report_upload_failed", "{\"error_type\":\"" + esc(e.getClass().getSimpleName()) + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
+                runOnUiThread(() -> {
+                    status.setText("Report upload failed: " + e.getMessage() + "\n\n" + reportSummary());
+                    Toast.makeText(this, "GitHub upload failed", Toast.LENGTH_LONG).show();
+                });
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }).start();
+    }
+
+    private String readStream(InputStream stream) throws Exception {
+        if (stream == null) return "";
+        try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private String esc(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\").replace("\"", "\\\"")
+            .replace("\n", "\\n").replace("\r", "\\r");
+    }
+}
+END ALLOWED
+
 EXPECTED-GIT-BLOB-SHA:buildozer.spec=5c786acf34a6b0041861d226840c28ea6885fc80
 EXPECTED-GIT-BLOB-SHA:main.py=3647888218d7ea95e30298a22f9fae04c6180c9a
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
@@ -4803,4 +5402,8 @@ EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=41db6a5819d8f5134e9f5abdc
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=887269e44f5fbffc093de87d02e7bf960f3e138b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=295307267609aea347e7b1ee7c668a5139d96f9c
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=69a6644b84324115fbac7a823beeda1fc629ecd1
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=46afd196a327985cd98d05ad35065a46c9342181
+EXPECTED-GIT-BLOB-SHA:monitor-app/settings.gradle=8947fd008921eaa4e6667b75bfde20d21d3572ae
+EXPECTED-GIT-BLOB-SHA:monitor-app/build.gradle=adcbb1080de2fdd732ced1b6104fa80e22dca6e7
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=ce04232cadffee5c51ed1ad432531f2932b33348
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=b765bc5c5ec16757ae022cbe48601f1f0f6cc9b0
