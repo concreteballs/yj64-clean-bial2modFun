@@ -211,6 +211,23 @@ public class MonitorActivity extends Activity {
                     appendEvent("target_process_exits_collected", new JSONObject()
                         .put("target_package", TARGET_PACKAGE).put("exits", found).toString());
                 }
+            } catch (SecurityException e) {
+                text.append("Android does not allow this monitor to read another app's historical process exits. ")
+                    .append("This is an expected platform restriction, not evidence that YJ-64 Base crashed.\n")
+                    .append("Using Base-side diagnostic IPC instead.\n");
+                JSONObject unavailable = new JSONObject();
+                try {
+                    unavailable.put("error_type", e.getClass().getName());
+                    unavailable.put("message", String.valueOf(e.getMessage()));
+                    unavailable.put("target_package", TARGET_PACKAGE);
+                    unavailable.put("monitor_package", getPackageName());
+                    unavailable.put("android_api", Build.VERSION.SDK_INT);
+                    unavailable.put("android_release", Build.VERSION.RELEASE);
+                    unavailable.put("diagnostic_api", "ActivityManager.getHistoricalProcessExitReasons");
+                    unavailable.put("cross_application_query", true);
+                    unavailable.put("base_side_ipc_expected", true);
+                } catch (Exception ignored) { }
+                appendEvent("cross_app_exit_history_unavailable", unavailable.toString());
             } catch (Exception e) {
                 String stack = stackTrace(e);
                 String message = String.valueOf(e.getMessage());
@@ -219,9 +236,6 @@ public class MonitorActivity extends Activity {
                     .append("\nAndroid API: ").append(Build.VERSION.SDK_INT)
                     .append("\nTarget package: ").append(TARGET_PACKAGE)
                     .append("\n\nStack trace:\n").append(stack).append("\n");
-                if (e instanceof SecurityException) {
-                    text.append("\nAndroid denied cross-application process-exit diagnostics. The monitor cannot grant itself the signature-level DUMP permission. A target-app-side crash report or explicit diagnostic IPC is required to obtain the base app's actual exception.\n");
-                }
                 JSONObject failure = new JSONObject();
                 try {
                     failure.put("error_type", e.getClass().getName());
@@ -233,7 +247,7 @@ public class MonitorActivity extends Activity {
                     failure.put("android_release", Build.VERSION.RELEASE);
                     failure.put("diagnostic_api", "ActivityManager.getHistoricalProcessExitReasons");
                     failure.put("cross_application_query", true);
-                    failure.put("dump_permission_hint", e instanceof SecurityException);
+                    failure.put("dump_permission_hint", false);
                 } catch (Exception ignored) { }
                 appendEvent("crash_check_failed", failure.toString());
             }
