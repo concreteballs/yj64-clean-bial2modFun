@@ -197,7 +197,7 @@ public class MonitorActivity extends Activity {
                 throw new IOException("report_directory_unavailable");
             }
             try (FileOutputStream out = new FileOutputStream(file, true)) {
-                out.write((report.toString() + "\\n").getBytes(StandardCharsets.UTF_8));
+                out.write((report.toString() + "\n").getBytes(StandardCharsets.UTF_8));
                 out.flush();
                 out.getFD().sync();
             }
