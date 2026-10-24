@@ -15,7 +15,6 @@ from jnius import autoclass
 
 
 SCHEMA = "yj64.diagnostic.v1"
-SERVICE_LAUNCH_FLAG = "yj64.internal_agent_launch"
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "bridge.json"
 
 
@@ -50,7 +49,8 @@ def append_spool(service: Any, path: Path, report: dict[str, Any]) -> None:
 
 
 def send_bridge(config: dict[str, Any], report: dict[str, Any]) -> bool:
-    """Send a report through the monitor's signature-protected Android provider."""
+    """Send a report and retain a concise reason when Android IPC rejects it."""
+    config["_last_bridge_error"] = ""
     try:
         bridge = config["bridge"]
         context = autoclass("org.kivy.android.PythonService").mService
@@ -58,27 +58,32 @@ def send_bridge(config: dict[str, Any], report: dict[str, Any]) -> bool:
         Bundle = autoclass("android.os.Bundle")
         extras = Bundle()
         extras.putString("report_json", json.dumps(report, sort_keys=True))
-        uri = Uri.parse(
-            "content://" + str(bridge["authority"])
-        )
+        uri = Uri.parse("content://" + str(bridge["authority"]))
         result = context.getContentResolver().call(
             uri, str(bridge["method"]), None, extras
         )
         if result is None:
+            config["_last_bridge_error"] = "provider_returned_null"
             return False
         report_id = str(report.get("report_id") or report.get("message_id") or "")
-        return (
+        accepted = (
             bool(report_id)
             and bool(result.getBoolean("ok", False))
             and str(result.getString("report_id") or "") == report_id
         )
-    except Exception:
+        if not accepted:
+            error_type = str(result.getString("error_type") or "ProviderRejected")
+            error_message = str(result.getString("error") or "acknowledgement_mismatch")
+            config["_last_bridge_error"] = f"{error_type}: {error_message}"
+        return accepted
+    except Exception as exc:
+        config["_last_bridge_error"] = f"{type(exc).__name__}: {exc}"
         return False
 
 
 def send_with_retry(config: dict[str, Any], report: dict[str, Any]) -> bool:
-    # Android IPC returns immediately when the monitor is installed and
-    # acknowledges durable persistence. The tail-forwarder retries local records.
+    # The provider acknowledges only after durable persistence. If unavailable,
+    # the report is spooled and the tail-forwarder retries it later.
     return send_bridge(config, report)
 
 
@@ -146,26 +151,6 @@ def self_diagnostic(config: dict[str, Any], service: Any) -> dict[str, Any]:
     return checks
 
 
-def launch_target(package_name: str) -> tuple[bool, str]:
-    """Hand control to the base application's main activity."""
-
-    try:
-        context = autoclass("org.kivy.android.PythonService").mService
-        package_manager = context.getPackageManager()
-        intent = package_manager.getLaunchIntentForPackage(package_name)
-
-        if intent is None:
-            return False, "target_package_not_installed"
-
-        Intent = autoclass("android.content.Intent")
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        intent.putExtra(SERVICE_LAUNCH_FLAG, True)
-        context.startActivity(intent)
-        return True, "launched"
-    except Exception as exc:
-        return False, f"launch_error:{type(exc).__name__}"
-
-
 def send_report_or_spool(
     config: dict[str, Any],
     service: Any,
@@ -177,6 +162,16 @@ def send_report_or_spool(
     bridge_ok = send_with_retry(config, report)
     if not bridge_ok:
         append_spool(service, spool, report)
+        if report.get("event") != "bridge_delivery_failed":
+            failure = make_report(
+                str(config["agent_id"]),
+                "bridge_delivery_failed",
+                failed_report_id=str(report.get("report_id") or ""),
+                failed_event=str(report.get("event") or ""),
+                error=str(config.get("_last_bridge_error") or "unknown_ipc_failure"),
+                fallback="local_jsonl_spool",
+            )
+            append_spool(service, spool, failure)
 
     endpoint = str(config["report"].get("https_endpoint", ""))
     if endpoint:
@@ -235,12 +230,7 @@ def run() -> None:
         checks=checks,
         target_package=config["target_package"],
     )
-    self_bridge_ok = send_report_or_spool(
-        config,
-        service,
-        spool,
-        self_report,
-    )
+    self_bridge_ok = send_report_or_spool(config, service, spool, self_report)
 
     startup = make_report(
         agent_id,
@@ -249,39 +239,29 @@ def run() -> None:
         python_version=sys.version.split()[0],
         target_package=config["target_package"],
         cwd=os.getcwd(),
+        launch_strategy="service_runs_alongside_existing_base_activity",
     )
-    startup_bridge_ok = send_report_or_spool(
-        config,
-        service,
-        spool,
-        startup,
-    )
+    startup_bridge_ok = send_report_or_spool(config, service, spool, startup)
 
-    launch_ok, launch_reason = launch_target(str(config["target_package"]))
-    launch_report = make_report(
+    ready = make_report(
         agent_id,
-        "target_launch_result",
+        "internal_service_ready",
         target_package=config["target_package"],
-        success=launch_ok,
-        reason=launch_reason,
+        base_ui_relaunch_attempted=False,
+        base_ui_should_remain_open=True,
         bridge_received_self_diagnostic=self_bridge_ok,
         bridge_received_startup=startup_bridge_ok,
     )
-    launch_bridge_ok = send_report_or_spool(
-        config,
-        service,
-        spool,
-        launch_report,
-    )
+    ready_bridge_ok = send_report_or_spool(config, service, spool, ready)
 
     write_status(
         service,
         {
             "agent": agent_id,
-            "event": "target_launch_result",
+            "event": "internal_service_ready",
             "bridge_status": (
                 "connected"
-                if self_bridge_ok or startup_bridge_ok or launch_bridge_ok
+                if self_bridge_ok or startup_bridge_ok or ready_bridge_ok
                 else "spooled"
             ),
             "self_diagnostic": (
@@ -289,15 +269,15 @@ def run() -> None:
                 if all(value in {"ok", "visible"} for value in checks.values())
                 else json.dumps(checks, sort_keys=True)
             ),
-            "target_launch": launch_reason,
-            "target_success": launch_ok,
-            "launch_report_sent": launch_bridge_ok,
+            "target_launch": "not_relaunched_base_ui_kept_open",
+            "target_success": True,
+            "launch_report_sent": ready_bridge_ok,
         },
     )
 
-    # The service and the Python UI share this app's private files directory.
-    # Stream Base JSONL events to the standalone monitor; if it is unavailable,
-    # keep the current offset so the same event is retried after the monitor opens.
+    # Base and its service share the same app-private files directory.
+    # Forward JSONL records to the standalone Monitor and retain the offset
+    # while IPC is unavailable so records are retried after Monitor is installed/open.
     report_offset = 0
     while True:
         report_offset = forward_spool_reports(config, spool, report_offset)
