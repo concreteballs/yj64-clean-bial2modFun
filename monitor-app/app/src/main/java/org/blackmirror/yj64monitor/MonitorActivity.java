@@ -64,6 +64,14 @@ public class MonitorActivity extends Activity {
         appendEvent("monitor_started", "{\"package\":\"" + TARGET_PACKAGE + "\"}");
         buildUi();
         refreshDiagnostics();
+        autoUploadReportIfConfigured();
+    }
+
+    private void autoUploadReportIfConfigured() {
+        if (!tokenFile().isFile()) return;
+        appendEvent("diagnostic_report_auto_upload_started",
+            "{\"trigger\":\"monitor_opened\",\"repository\":\"" + OWNER + "/" + REPO + "\",\"branch\":\"" + BRANCH + "\",\"path\":\"Report\"}");
+        uploadReport();
     }
 
     private void buildUi() {
@@ -350,7 +358,7 @@ public class MonitorActivity extends Activity {
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         input.setHint("Fine-grained GitHub token");
         new AlertDialog.Builder(this).setTitle("GitHub report upload")
-            .setMessage("Create a fine-grained token limited to " + OWNER + "/" + REPO + " with Contents: Read and write. It is encrypted with Android Keystore and is not embedded in this APK.")
+            .setMessage("Create a fine-grained token limited to " + OWNER + "/" + REPO + " with Contents: Read and write. The complete diagnostic JSONL will be uploaded automatically whenever this monitor opens to the PUBLIC Report file on branch " + BRANCH + ". Reports can include crash details. Saving the token enables that publishing behavior. The token is encrypted with Android Keystore and is not embedded in this APK.")
             .setView(input).setNegativeButton("CANCEL", (d, w) -> d.dismiss())
             .setPositiveButton("SAVE TOKEN", (d, w) -> {
                 String token = input.getText().toString().trim();
@@ -385,6 +393,7 @@ public class MonitorActivity extends Activity {
             configureToken();
             return;
         }
+        appendEvent("diagnostic_report_upload_started", "{\"destination\":\"" + OWNER + "/" + REPO + "/blob/" + BRANCH + "/Report\"}");
         final String content = readReport();
         status.setText("Uploading diagnostic report to GitHub...");
         new Thread(() -> {
@@ -410,24 +419,40 @@ public class MonitorActivity extends Activity {
                 payload.put("branch", BRANCH);
                 if (!existingSha.isEmpty()) payload.put("sha", existingSha);
 
-                connection = (HttpURLConnection) new URL(api).openConnection();
-                connection.setRequestMethod("PUT");
-                connection.setConnectTimeout(15000);
-                connection.setReadTimeout(30000);
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Authorization", "Bearer " + token);
-                connection.setRequestProperty("Accept", "application/vnd.github+json");
-                connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                try (OutputStream out = connection.getOutputStream()) {
-                    out.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                int code = 0;
+                String response = "";
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    connection = (HttpURLConnection) new URL(api).openConnection();
+                    connection.setRequestMethod("PUT");
+                    connection.setConnectTimeout(15000);
+                    connection.setReadTimeout(30000);
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Authorization", "Bearer " + token);
+                    connection.setRequestProperty("Accept", "application/vnd.github+json");
+                    connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    try (OutputStream out = connection.getOutputStream()) {
+                        out.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                        out.flush();
+                    }
+                    code = connection.getResponseCode();
+                    InputStream responseStream = code >= 200 && code < 400
+                        ? connection.getInputStream() : connection.getErrorStream();
+                    response = readStream(responseStream);
+                    if (code == 429 && attempt == 0) {
+                        appendEvent("github_report_rate_limited",
+                            "{\"http_status\":429,\"retry_after_seconds\":45,\"retry_count\":1}");
+                        connection.disconnect();
+                        connection = null;
+                        Thread.sleep(45000L);
+                        continue;
+                    }
+                    break;
                 }
-                int code = connection.getResponseCode();
-                String response = readStream(code >= 200 && code < 400 ? connection.getInputStream() : connection.getErrorStream());
                 if (code < 200 || code >= 300) throw new IllegalStateException("GitHub upload HTTP " + code + ": " + response);
                 JSONObject json = new JSONObject(response);
                 String htmlUrl = json.optJSONObject("content") == null ? "" : json.optJSONObject("content").optString("html_url", "");
-                appendEvent("diagnostic_report_uploaded", "{\"success\":true,\"http_status\":" + code + "}");
+                appendEvent("diagnostic_report_uploaded", "{\"success\":true,\"http_status\":" + code + ",\"bytes\":" + content.getBytes(StandardCharsets.UTF_8).length + ",\"url\":\"" + esc(htmlUrl) + "\"}");
                 runOnUiThread(() -> {
                     status.setText("Report uploaded successfully.\n" + htmlUrl + "\n\n" + reportSummary());
                     Toast.makeText(this, "Report uploaded to GitHub", Toast.LENGTH_LONG).show();
