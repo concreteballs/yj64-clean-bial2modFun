@@ -32,6 +32,8 @@ import java.io.InputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -202,8 +204,30 @@ public class MonitorActivity extends Activity {
                         .put("target_package", TARGET_PACKAGE).put("exits", found).toString());
                 }
             } catch (Exception e) {
-                text.append("Crash history read failed: ").append(e.getClass().getSimpleName()).append("\n");
-                appendEvent("crash_check_failed", "{\"error_type\":\"" + esc(e.getClass().getSimpleName()) + "\"}");
+                String stack = stackTrace(e);
+                String message = String.valueOf(e.getMessage());
+                text.append("Crash history read failed: ").append(e.getClass().getSimpleName())
+                    .append("\nMessage: ").append(message)
+                    .append("\nAndroid API: ").append(Build.VERSION.SDK_INT)
+                    .append("\nTarget package: ").append(TARGET_PACKAGE)
+                    .append("\n\nStack trace:\n").append(stack).append("\n");
+                if (e instanceof SecurityException) {
+                    text.append("\nAndroid denied cross-application process-exit diagnostics. The monitor cannot grant itself the signature-level DUMP permission. A target-app-side crash report or explicit diagnostic IPC is required to obtain the base app's actual exception.\n");
+                }
+                JSONObject failure = new JSONObject();
+                try {
+                    failure.put("error_type", e.getClass().getName());
+                    failure.put("message", message);
+                    failure.put("stack_trace", stack);
+                    failure.put("target_package", TARGET_PACKAGE);
+                    failure.put("monitor_package", getPackageName());
+                    failure.put("android_api", Build.VERSION.SDK_INT);
+                    failure.put("android_release", Build.VERSION.RELEASE);
+                    failure.put("diagnostic_api", "ActivityManager.getHistoricalProcessExitReasons");
+                    failure.put("cross_application_query", true);
+                    failure.put("dump_permission_hint", e instanceof SecurityException);
+                } catch (Exception ignored) { }
+                appendEvent("crash_check_failed", failure.toString());
             }
         } else {
             text.append("Android 11+ is required for historical process exit diagnostics.\n");
@@ -220,7 +244,26 @@ public class MonitorActivity extends Activity {
             int count;
             while ((count = input.read(buffer)) != -1 && output.size() < 16000) output.write(buffer, 0, count);
             return new String(output.toByteArray(), StandardCharsets.UTF_8);
-        } catch (Exception ignored) { return ""; }
+        } catch (Exception e) {
+            JSONObject failure = new JSONObject();
+            try {
+                failure.put("error_type", e.getClass().getName());
+                failure.put("message", String.valueOf(e.getMessage()));
+                failure.put("stack_trace", stackTrace(e));
+                failure.put("target_package", TARGET_PACKAGE);
+            } catch (Exception ignored) { }
+            appendEvent("target_trace_read_failed", failure.toString());
+            return "";
+        }
+    }
+
+    private String stackTrace(Throwable error) {
+        StringWriter buffer = new StringWriter();
+        PrintWriter writer = new PrintWriter(buffer);
+        error.printStackTrace(writer);
+        writer.flush();
+        String value = buffer.toString();
+        return value.length() > 12000 ? value.substring(0, 12000) : value;
     }
 
     private String reasonName(int reason) {
