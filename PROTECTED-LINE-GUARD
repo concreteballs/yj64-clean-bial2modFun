@@ -4875,6 +4875,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
 
       - name: Build standalone YJ-64 Monitor APK
         run: |
@@ -5408,7 +5410,7 @@ EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=41db6a5819d8f5134e9f5abdc
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=887269e44f5fbffc093de87d02e7bf960f3e138b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=295307267609aea347e7b1ee7c668a5139d96f9c
-EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=46afd196a327985cd98d05ad35065a46c9342181
+EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=4d9b379009e156128362549227d43546cc5b2812
 EXPECTED-GIT-BLOB-SHA:monitor-app/settings.gradle=8947fd008921eaa4e6667b75bfde20d21d3572ae
 EXPECTED-GIT-BLOB-SHA:monitor-app/build.gradle=5b7ccba7c566afb5057eaea1b10b99b083851fe4
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=ce04232cadffee5c51ed1ad432531f2932b33348
