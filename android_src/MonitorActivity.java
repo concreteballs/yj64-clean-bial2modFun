@@ -136,7 +136,7 @@ public class MonitorActivity extends Activity {
     private static final String GITHUB_KEY_ALIAS = "yj64_github_report_upload_key";
     private static final String GITHUB_TOKEN_FILE = "yj64-github-token.enc";
     private static final String GITHUB_OWNER = "concreteballs";
-    private static final String GITHUB_REPO = "yj64-clean-bial2modFun";
+    private static final String GITHUB_REPO = "yj64-clean";
     private static final String GITHUB_BRANCH = "main";
 
     private SecretKey githubEncryptionKey() throws Exception {
@@ -338,8 +338,10 @@ public class MonitorActivity extends Activity {
                 org.json.JSONObject response = new org.json.JSONObject(responseText);
                 org.json.JSONObject content = response.optJSONObject("content");
                 String htmlUrl = content == null ? "" : content.optString("html_url", "");
-                if (htmlUrl.isEmpty()) {
-                    throw new IOException("GitHub accepted upload but returned no file URL");
+                String returnedPath = content == null ? "" : content.optString("path", "");
+                if (!"Report".equals(returnedPath) || htmlUrl.isEmpty()
+                    || !htmlUrl.contains("/blob/" + GITHUB_BRANCH + "/Report")) {
+                    throw new IOException("GitHub response did not confirm the expected Report path and branch");
                 }
                 final String publishedUrl = htmlUrl;
                 append("github_report_upload_succeeded",
