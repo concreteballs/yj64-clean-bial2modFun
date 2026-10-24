@@ -1,4 +1,4 @@
-name: YJ-64 Base Android APK
+name: YJ-64 Base and Standalone Monitor Android APKs
 
 on:
   push:
@@ -16,9 +16,9 @@ permissions:
 
 jobs:
   build:
-    name: Build YJ-64 Base APK
+    name: Build YJ-64 Base and Standalone Monitor APKs
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +47,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install buildozer cython==0.29.36
 
-      - name: Validate sources
+      - name: Validate Python sources
         run: |
           python -m py_compile main.py services/internal_monitor.py llm_api.py llm_settings.py message_distributor.py
 
@@ -57,22 +57,32 @@ jobs:
           rm -f build.log buildozer.log
           mkdir -p bin
 
-      - name: Build APK
+      - name: Build YJ-64 Base APK
         run: |
           export ACLOCAL_PATH="/usr/share/aclocal"
           set -o pipefail
           buildozer -v android debug 2>&1 | tee build.log
 
-      - name: Validate APK output
+      - name: Validate base APK output
         run: |
           set -e
           APK=$(find bin -maxdepth 1 -type f -name '*.apk' | head -n 1)
           if [ -z "$APK" ]; then
-            echo "ERROR: no APK was produced"
+            echo "ERROR: no base APK was produced"
             exit 1
           fi
           stat -c '%n %s bytes' "$APK"
           sha256sum "$APK"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build standalone YJ-64 Monitor APK
+        run: |
+          gradle --no-daemon --project-dir monitor-app assembleDebug
+          test -f monitor-app/app/build/outputs/apk/debug/app-debug.apk
+          stat -c '%n %s bytes' monitor-app/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum monitor-app/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload Build log
         if: always()
@@ -84,12 +94,18 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload APK
-        if: always()
-        continue-on-error: true
+      - name: Upload YJ-64 Base APK
         uses: actions/upload-artifact@v4
         with:
           name: yj64-base-apk
           path: bin/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload standalone YJ-64 Monitor APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yj64-monitor-apk
+          path: monitor-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 30
