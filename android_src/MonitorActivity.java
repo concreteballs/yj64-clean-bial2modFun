@@ -136,7 +136,7 @@ public class MonitorActivity extends Activity {
     private static final String GITHUB_KEY_ALIAS = "yj64_github_report_upload_key";
     private static final String GITHUB_TOKEN_FILE = "yj64-github-token.enc";
     private static final String GITHUB_OWNER = "concreteballs";
-    private static final String GITHUB_REPO = "yj64-clean";
+    private static final String GITHUB_REPO = "yj64-clean-bial2modFun";
     private static final String GITHUB_BRANCH = "main";
 
     private SecretKey githubEncryptionKey() throws Exception {
@@ -256,7 +256,7 @@ public class MonitorActivity extends Activity {
         }
         final String timestamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
         // Keep one stable URL so the user can share it once and refresh the latest report.
-        final String reportPath = "reports/latest-report.jsonl";
+        final String reportPath = "Report";
         status.setText(identityText() + "\n\nUploading report to GitHub...");
         new Thread(() -> {
             HttpURLConnection connection = null;
