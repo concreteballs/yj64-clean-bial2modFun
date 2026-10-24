@@ -4604,7 +4604,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.22
+version = 0.1.23
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -5413,6 +5413,14 @@ public class MonitorActivity extends Activity {
         appendEvent("monitor_started", "{\"package\":\"" + TARGET_PACKAGE + "\"}");
         buildUi();
         refreshDiagnostics();
+        autoUploadReportIfConfigured();
+    }
+
+    private void autoUploadReportIfConfigured() {
+        if (!tokenFile().isFile()) return;
+        appendEvent("diagnostic_report_auto_upload_started",
+            "{\"trigger\":\"monitor_opened\",\"repository\":\"" + OWNER + "/" + REPO + "\",\"branch\":\"" + BRANCH + "\",\"path\":\"Report\"}");
+        uploadReport();
     }
 
     private void buildUi() {
@@ -5699,7 +5707,7 @@ public class MonitorActivity extends Activity {
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         input.setHint("Fine-grained GitHub token");
         new AlertDialog.Builder(this).setTitle("GitHub report upload")
-            .setMessage("Create a fine-grained token limited to " + OWNER + "/" + REPO + " with Contents: Read and write. It is encrypted with Android Keystore and is not embedded in this APK.")
+            .setMessage("Create a fine-grained token limited to " + OWNER + "/" + REPO + " with Contents: Read and write. The complete diagnostic JSONL will be uploaded automatically whenever this monitor opens to the PUBLIC Report file on branch " + BRANCH + ". Reports can include crash details. Saving the token enables that publishing behavior. The token is encrypted with Android Keystore and is not embedded in this APK.")
             .setView(input).setNegativeButton("CANCEL", (d, w) -> d.dismiss())
             .setPositiveButton("SAVE TOKEN", (d, w) -> {
                 String token = input.getText().toString().trim();
@@ -5734,6 +5742,7 @@ public class MonitorActivity extends Activity {
             configureToken();
             return;
         }
+        appendEvent("diagnostic_report_upload_started", "{\"destination\":\"" + OWNER + "/" + REPO + "/blob/" + BRANCH + "/Report\"}");
         final String content = readReport();
         status.setText("Uploading diagnostic report to GitHub...");
         new Thread(() -> {
@@ -5759,24 +5768,40 @@ public class MonitorActivity extends Activity {
                 payload.put("branch", BRANCH);
                 if (!existingSha.isEmpty()) payload.put("sha", existingSha);
 
-                connection = (HttpURLConnection) new URL(api).openConnection();
-                connection.setRequestMethod("PUT");
-                connection.setConnectTimeout(15000);
-                connection.setReadTimeout(30000);
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Authorization", "Bearer " + token);
-                connection.setRequestProperty("Accept", "application/vnd.github+json");
-                connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                try (OutputStream out = connection.getOutputStream()) {
-                    out.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                int code = 0;
+                String response = "";
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    connection = (HttpURLConnection) new URL(api).openConnection();
+                    connection.setRequestMethod("PUT");
+                    connection.setConnectTimeout(15000);
+                    connection.setReadTimeout(30000);
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Authorization", "Bearer " + token);
+                    connection.setRequestProperty("Accept", "application/vnd.github+json");
+                    connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    try (OutputStream out = connection.getOutputStream()) {
+                        out.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                        out.flush();
+                    }
+                    code = connection.getResponseCode();
+                    InputStream responseStream = code >= 200 && code < 400
+                        ? connection.getInputStream() : connection.getErrorStream();
+                    response = readStream(responseStream);
+                    if (code == 429 && attempt == 0) {
+                        appendEvent("github_report_rate_limited",
+                            "{\"http_status\":429,\"retry_after_seconds\":45,\"retry_count\":1}");
+                        connection.disconnect();
+                        connection = null;
+                        Thread.sleep(45000L);
+                        continue;
+                    }
+                    break;
                 }
-                int code = connection.getResponseCode();
-                String response = readStream(code >= 200 && code < 400 ? connection.getInputStream() : connection.getErrorStream());
                 if (code < 200 || code >= 300) throw new IllegalStateException("GitHub upload HTTP " + code + ": " + response);
                 JSONObject json = new JSONObject(response);
                 String htmlUrl = json.optJSONObject("content") == null ? "" : json.optJSONObject("content").optString("html_url", "");
-                appendEvent("diagnostic_report_uploaded", "{\"success\":true,\"http_status\":" + code + "}");
+                appendEvent("diagnostic_report_uploaded", "{\"success\":true,\"http_status\":" + code + ",\"bytes\":" + content.getBytes(StandardCharsets.UTF_8).length + ",\"url\":\"" + esc(htmlUrl) + "\"}");
                 runOnUiThread(() -> {
                     status.setText("Report uploaded successfully.\n" + htmlUrl + "\n\n" + reportSummary());
                     Toast.makeText(this, "Report uploaded to GitHub", Toast.LENGTH_LONG).show();
@@ -5910,12 +5935,12 @@ android {
         applicationId 'org.blackmirror.yj64monitor'
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName '1.0.3'
+        versionCode 5
+        versionName '1.0.4'
     }
 }
 END ALLOWED
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=573b7c02dba8629e350f5d909217adfed47fc145
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=279f1687e32e3347f5c3d694a53545a2cad72fe6
 EXPECTED-GIT-BLOB-SHA:main.py=a4d5c5180e5deb5e1e719fd87cebe7f3c77098a8
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/DiagnosticReportProvider.java=d45ac523b622322ad5523cd499ad3ef23413d575
 EXPECTED-GIT-BLOB-SHA:config/bridge.json=d4733db70a087a9d9c6077c739b156d514a85964
@@ -5930,5 +5955,5 @@ EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=480684487be8f3059b6cdb49
 EXPECTED-GIT-BLOB-SHA:monitor-app/settings.gradle=8947fd008921eaa4e6667b75bfde20d21d3572ae
 EXPECTED-GIT-BLOB-SHA:monitor-app/build.gradle=5b7ccba7c566afb5057eaea1b10b99b083851fe4
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=8707281c53fb3be98172e9ab65550e5593464ba6
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=05cb0426b0e5231dec6a3a58f9feef583ec8fa1f
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=5e34552a657a7a88b8aca545d8d0365c0d304548
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=b2dbd2b2785a21da3c869a0753b32cb7dd6f2db5
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=a80ea4405ee7f577e8a4ebb1a4c65e989413ad30
