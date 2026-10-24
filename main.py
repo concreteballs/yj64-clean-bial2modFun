@@ -487,19 +487,24 @@ class YJ64BaseApp(App):
             if from_stream is None or to_stream is None:
                 raise IOError("Android could not open the selected file")
             buffer = jarray('b', [0] * 8192)
+            copied_bytes = 0
+            expected_bytes = Path(self._archive_export_path).stat().st_size if request_code == 4701 else None
             try:
                 while True:
                     count = from_stream.read(buffer)
                     if count < 0:
                         break
                     to_stream.write(buffer, 0, count)
+                    copied_bytes += count
                 to_stream.flush()
             finally:
                 from_stream.close()
                 to_stream.close()
             if request_code == 4701:
+                if copied_bytes != expected_bytes:
+                    raise IOError(f"Archive transfer incomplete: copied {copied_bytes} of {expected_bytes} bytes")
                 self.status.text = "Архив памяти сохранён. Перед удалением приложения проверь, что ZIP виден в выбранной папке."
-                self._append_report("memory_archive_export_succeeded", size_bytes=temp_path.stat().st_size)
+                self._append_report("memory_archive_export_succeeded", size_bytes=copied_bytes, expected_bytes=expected_bytes, transfer_verified=True)
             else:
                 count = self.persistent_core.import_archive(temp_path)
                 from chat_workspace import ChatWorkspace
@@ -689,7 +694,7 @@ class YJ64BaseApp(App):
     def _resize_chat_input(self, *_: Any) -> None:
         if not hasattr(self,"chat_input"):
             return
-        height = min(112,max(72,len(self.chat_input.text.splitlines())*22+18))
+        height = min(330,max(72,len(self.chat_input.text.splitlines())*22+18))
         self.chat_input.height = height
         if self.chat_input.parent is not None:
             self.chat_input.parent.height = height+6
@@ -1740,7 +1745,7 @@ class YJ64BaseApp(App):
                         model=status["model"],
                         history_count=len(request_history),
                     )
-                    result = self.message_distributor.dispatch_message(
+                    result = self._dispatch_with_rate_limit_retry(
                         self.user_data_dir,
                         participant_name,
                         request_message,
@@ -2443,6 +2448,21 @@ class YJ64BaseApp(App):
             daemon=True,
         ).start()
 
+    def _dispatch_with_rate_limit_retry(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Retry one rate-limited provider request after a short backoff, preserving its route."""
+        try:
+            return self.message_distributor.dispatch_message(*args, **kwargs)
+        except Exception as exc:
+            detail = (type(exc).__name__ + " " + str(exc)).lower()
+            rate_limited = any(marker in detail for marker in ("429", "rate_limit", "rate limited", "too many requests", "1300"))
+            if not rate_limited:
+                raise
+            participant = str(args[1]) if len(args) > 1 else "unknown"
+            self._append_report("llm_rate_limit_backoff_started", participant=participant, delay_seconds=45, error=str(exc))
+            time.sleep(45)
+            self._append_report("llm_rate_limit_retry_started", participant=participant, attempt=2)
+            return self.message_distributor.dispatch_message(*args, **kwargs)
+
     def _send_llm_chat(self, *_: Any) -> None:
         prompt = self.chat_input.text.strip()
         if not prompt:
@@ -2558,7 +2578,7 @@ class YJ64BaseApp(App):
                             own_previous_answers_excluded=True,
                         )
                         try:
-                            result = self.message_distributor.dispatch_message(
+                            result = self._dispatch_with_rate_limit_retry(
                                 self.user_data_dir,
                                 name,
                                 turn_prompt,

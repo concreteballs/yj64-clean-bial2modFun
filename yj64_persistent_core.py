@@ -135,28 +135,46 @@ class PersistentCore:
         return [dict(row) for row in rows]
 
     def export_archive(self, destination: str | Path) -> str:
-        """Export SQLite plus chat workspace into one portable, path-safe ZIP."""
+        """Export database, summary and workspace; verify the finished ZIP before returning."""
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temp_db = self.root / ("export-" + uuid.uuid4().hex + ".sqlite3")
         workspace = self.root / "yj64-workspace"
+        workspace_files = sorted(
+            (item for item in workspace.rglob("*") if item.is_file()),
+            key=lambda item: item.as_posix(),
+        ) if workspace.is_dir() else []
+        workspace_bytes = sum(item.stat().st_size for item in workspace_files)
         try:
             with self._connect() as source, sqlite3.connect(str(temp_db)) as target:
                 source.backup(target)
             with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.write(temp_db, DB_NAME)
-                if self.summary_path.exists():
+                if self.summary_path.is_file():
                     archive.write(self.summary_path, SUMMARY_NAME)
-                if workspace.is_dir():
-                    for item in sorted(workspace.rglob("*")):
-                        if item.is_file():
-                            archive.write(item, (Path("workspace") / item.relative_to(workspace)).as_posix())
-                archive.writestr(
-                    "manifest.json",
-                    json.dumps({"schema": SCHEMA, "exported_ms": int(time.time() * 1000),
-                                "includes_workspace": workspace.is_dir()},
-                               ensure_ascii=False),
-                )
+                for item in workspace_files:
+                    archive.write(item, (Path("workspace") / item.relative_to(workspace)).as_posix())
+                archive.writestr("manifest.json", json.dumps({
+                    "schema": SCHEMA, "exported_ms": int(time.time() * 1000),
+                    "includes_workspace": bool(workspace_files),
+                    "workspace_file_count": len(workspace_files),
+                    "workspace_bytes": workspace_bytes,
+                }, ensure_ascii=False))
+            with zipfile.ZipFile(destination, "r") as check:
+                bad_member = check.testzip()
+                names = set(check.namelist())
+                if bad_member:
+                    raise IOError(f"ZIP integrity check failed for {bad_member}")
+                if "manifest.json" not in names or DB_NAME not in names:
+                    raise IOError("Exported ZIP is missing required archive members")
+                manifest = json.loads(check.read("manifest.json").decode("utf-8"))
+                archived_workspace = [n for n in names if n.startswith("workspace/") and not n.endswith("/")]
+                if len(archived_workspace) != len(workspace_files):
+                    raise IOError("Workspace file count does not match exported files")
+                if int(manifest.get("workspace_file_count", -1)) != len(archived_workspace):
+                    raise IOError("Workspace manifest count does not match ZIP contents")
+            if destination.stat().st_size <= 0:
+                raise IOError("Exported archive is empty")
         finally:
             try:
                 temp_db.unlink()
@@ -171,12 +189,19 @@ class PersistentCore:
         staging.mkdir(parents=True, exist_ok=False)
         try:
             with zipfile.ZipFile(source, "r") as archive:
+                bad_member = archive.testzip()
+                if bad_member:
+                    raise ValueError(f"Archive CRC check failed for {bad_member}")
                 names = set(archive.namelist())
                 if "manifest.json" not in names or DB_NAME not in names:
                     raise ValueError("Archive is missing the YJ-64 manifest or SQLite database")
                 manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
                 if manifest.get("schema") != SCHEMA:
                     raise ValueError("Unsupported YJ-64 archive schema")
+                workspace_entries = [n for n in names if n.startswith("workspace/") and not n.endswith("/")]
+                expected_workspace_count = manifest.get("workspace_file_count")
+                if expected_workspace_count is not None and int(expected_workspace_count) != len(workspace_entries):
+                    raise ValueError("Workspace file count does not match archive manifest")
                 # Only accept known top-level entries and reject traversal paths.
                 allowed = {"manifest.json", DB_NAME, SUMMARY_NAME}
                 for name in names:
