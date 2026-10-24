@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import sys
 import time
 import uuid
@@ -50,46 +49,37 @@ def append_spool(service: Any, path: Path, report: dict[str, Any]) -> None:
         handle.write(json.dumps(report, sort_keys=True) + "\n")
 
 
-def send_bridge(
-    host: str,
-    port: int,
-    token: str,
-    timeout: float,
-    report: dict[str, Any],
-) -> bool:
-    envelope = {"token": token, "report": report}
-    payload = (json.dumps(envelope, sort_keys=True) + "\n").encode("utf-8")
-
+def send_bridge(config: dict[str, Any], report: dict[str, Any]) -> bool:
+    """Send a report through the monitor's signature-protected Android provider."""
     try:
-        with socket.create_connection((host, port), timeout=timeout) as connection:
-            connection.sendall(payload)
-            connection.settimeout(timeout)
-            response = connection.recv(4096).decode("utf-8", errors="replace").strip()
-            if not response:
-                return False
-
-            ack = json.loads(response)
-            report_id = str(report.get("report_id") or report.get("message_id") or "")
-            return (
-                bool(report_id)
-                and ack.get("ok") is True
-                and ack.get("report_id") == report_id
-            )
-    except (OSError, ValueError, TypeError):
+        bridge = config["bridge"]
+        context = autoclass("org.kivy.android.PythonService").mService
+        Uri = autoclass("android.net.Uri")
+        Bundle = autoclass("android.os.Bundle")
+        extras = Bundle()
+        extras.putString("report_json", json.dumps(report, sort_keys=True))
+        uri = Uri.parse(
+            "content://" + str(bridge["authority"])
+        )
+        result = context.getContentResolver().call(
+            uri, str(bridge["method"]), None, extras
+        )
+        if result is None:
+            return False
+        report_id = str(report.get("report_id") or report.get("message_id") or "")
+        return (
+            bool(report_id)
+            and bool(result.getBoolean("ok", False))
+            and str(result.getString("report_id") or "") == report_id
+        )
+    except Exception:
         return False
 
 
 def send_with_retry(config: dict[str, Any], report: dict[str, Any]) -> bool:
-    bridge = config["bridge"]
-    # Startup must not stall for several seconds when the standalone monitor
-    # is not open. The tail-forwarder below retries the persisted report later.
-    return send_bridge(
-        str(bridge["host"]),
-        int(bridge["port"]),
-        str(bridge["token"]),
-        min(float(bridge["connect_timeout_seconds"]), 0.35),
-        report,
-    )
+    # Android IPC returns immediately when the monitor is installed and
+    # acknowledges durable persistence. The tail-forwarder retries local records.
+    return send_bridge(config, report)
 
 
 def upload_https(
@@ -124,8 +114,8 @@ def self_diagnostic(config: dict[str, Any], service: Any) -> dict[str, Any]:
     try:
         config["agent_id"]
         config["target_package"]
-        config["bridge"]["host"]
-        config["bridge"]["port"]
+        config["bridge"]["authority"]
+        config["bridge"]["method"]
         checks["configuration"] = "ok"
     except (KeyError, TypeError):
         checks["configuration"] = "invalid"
@@ -221,13 +211,7 @@ def forward_spool_reports(
                 if not isinstance(report, dict):
                     offset = handle.tell()
                     continue
-                delivered = send_bridge(
-                    str(bridge["host"]),
-                    int(bridge["port"]),
-                    str(bridge["token"]),
-                    min(float(bridge["connect_timeout_seconds"]), 0.35),
-                    report,
-                )
+                delivered = send_bridge(config, report)
                 if not delivered:
                     return line_start
                 offset = handle.tell()
