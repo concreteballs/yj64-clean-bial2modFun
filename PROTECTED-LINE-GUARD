@@ -4996,6 +4996,8 @@ import java.io.InputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -5166,8 +5168,30 @@ public class MonitorActivity extends Activity {
                         .put("target_package", TARGET_PACKAGE).put("exits", found).toString());
                 }
             } catch (Exception e) {
-                text.append("Crash history read failed: ").append(e.getClass().getSimpleName()).append("\n");
-                appendEvent("crash_check_failed", "{\"error_type\":\"" + esc(e.getClass().getSimpleName()) + "\"}");
+                String stack = stackTrace(e);
+                String message = String.valueOf(e.getMessage());
+                text.append("Crash history read failed: ").append(e.getClass().getSimpleName())
+                    .append("\nMessage: ").append(message)
+                    .append("\nAndroid API: ").append(Build.VERSION.SDK_INT)
+                    .append("\nTarget package: ").append(TARGET_PACKAGE)
+                    .append("\n\nStack trace:\n").append(stack).append("\n");
+                if (e instanceof SecurityException) {
+                    text.append("\nAndroid denied cross-application process-exit diagnostics. The monitor cannot grant itself the signature-level DUMP permission. A target-app-side crash report or explicit diagnostic IPC is required to obtain the base app's actual exception.\n");
+                }
+                JSONObject failure = new JSONObject();
+                try {
+                    failure.put("error_type", e.getClass().getName());
+                    failure.put("message", message);
+                    failure.put("stack_trace", stack);
+                    failure.put("target_package", TARGET_PACKAGE);
+                    failure.put("monitor_package", getPackageName());
+                    failure.put("android_api", Build.VERSION.SDK_INT);
+                    failure.put("android_release", Build.VERSION.RELEASE);
+                    failure.put("diagnostic_api", "ActivityManager.getHistoricalProcessExitReasons");
+                    failure.put("cross_application_query", true);
+                    failure.put("dump_permission_hint", e instanceof SecurityException);
+                } catch (Exception ignored) { }
+                appendEvent("crash_check_failed", failure.toString());
             }
         } else {
             text.append("Android 11+ is required for historical process exit diagnostics.\n");
@@ -5184,7 +5208,26 @@ public class MonitorActivity extends Activity {
             int count;
             while ((count = input.read(buffer)) != -1 && output.size() < 16000) output.write(buffer, 0, count);
             return new String(output.toByteArray(), StandardCharsets.UTF_8);
-        } catch (Exception ignored) { return ""; }
+        } catch (Exception e) {
+            JSONObject failure = new JSONObject();
+            try {
+                failure.put("error_type", e.getClass().getName());
+                failure.put("message", String.valueOf(e.getMessage()));
+                failure.put("stack_trace", stackTrace(e));
+                failure.put("target_package", TARGET_PACKAGE);
+            } catch (Exception ignored) { }
+            appendEvent("target_trace_read_failed", failure.toString());
+            return "";
+        }
+    }
+
+    private String stackTrace(Throwable error) {
+        StringWriter buffer = new StringWriter();
+        PrintWriter writer = new PrintWriter(buffer);
+        error.printStackTrace(writer);
+        writer.flush();
+        String value = buffer.toString();
+        return value.length() > 12000 ? value.substring(0, 12000) : value;
     }
 
     private String reasonName(int reason) {
@@ -5380,6 +5423,7 @@ public class MonitorActivity extends Activity {
             .replace("\n", "\\n").replace("\r", "\\r");
     }
 }
+
 END ALLOWED
 
 
@@ -5396,10 +5440,11 @@ android {
         applicationId 'org.blackmirror.yj64monitor'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '1.0.1'
+        versionCode 3
+        versionName '1.0.2'
     }
 }
+
 END ALLOWED
 EXPECTED-GIT-BLOB-SHA:buildozer.spec=26cbbe6f546d2f2f8e14c668730ea340646f13c0
 EXPECTED-GIT-BLOB-SHA:main.py=3647888218d7ea95e30298a22f9fae04c6180c9a
@@ -5413,5 +5458,5 @@ EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=480684487be8f3059b6cdb49
 EXPECTED-GIT-BLOB-SHA:monitor-app/settings.gradle=8947fd008921eaa4e6667b75bfde20d21d3572ae
 EXPECTED-GIT-BLOB-SHA:monitor-app/build.gradle=5b7ccba7c566afb5057eaea1b10b99b083851fe4
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=ce04232cadffee5c51ed1ad432531f2932b33348
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=a9d24a3046292e43c8c0b81a70b627abed47f1e0
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=f93afa4cd41ebd25cb884eb240315d77cec1cde9
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=05cb0426b0e5231dec6a3a58f9feef583ec8fa1f
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=0b4c259d5c4e33813454c34ca508a0f213d4d8a1
