@@ -2,6 +2,7 @@ package org.blackmirror.yj64monitor;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
+import android.os.Binder;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -27,6 +28,21 @@ public class DiagnosticReportProvider extends ContentProvider {
 
         String reportId = "";
         try {
+            int callingUid = Binder.getCallingUid();
+            String[] callerPackages = getContext().getPackageManager()
+                .getPackagesForUid(callingUid);
+            boolean allowedCaller = false;
+            if (callerPackages != null) {
+                for (String callerPackage : callerPackages) {
+                    if ("org.blackmirror.blackmirror".equals(callerPackage)) {
+                        allowedCaller = true;
+                        break;
+                    }
+                }
+            }
+            if (!allowedCaller) {
+                throw new SecurityException("caller_package_not_allowed");
+            }
             if (extras == null) throw new IllegalArgumentException("extras_missing");
             String raw = extras.getString("report_json");
             if (raw == null || raw.length() > 131072) {
@@ -37,6 +53,7 @@ public class DiagnosticReportProvider extends ContentProvider {
                 report.optString("message_id", ""));
             if (reportId.isEmpty()) throw new IllegalArgumentException("report_id_missing");
             report.put("_external_monitor_received_at_ms", System.currentTimeMillis());
+            report.put("_external_monitor_source_package", "org.blackmirror.blackmirror");
 
             File directory = new File(getContext().getFilesDir(), "yj64-reports");
             if (!directory.exists() && !directory.mkdirs()) {
