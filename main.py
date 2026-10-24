@@ -2892,41 +2892,32 @@ class YJ64BaseApp(App):
         except OSError as exc:
             return f"YJ-64 REPORT READ FAILED: {type(exc).__name__}: {exc}"
 
-    def _launched_by_internal_agent(self) -> bool:
-        try:
-            from jnius import autoclass
-            activity = autoclass("org.kivy.android.PythonActivity").mActivity
-            return bool(activity.getIntent().getBooleanExtra(
-                SERVICE_LAUNCH_FLAG, False
-            ))
-        except Exception:
-            return False
-
     def _ensure_service_started(self, *_: Any) -> None:
-        if self._launched_by_internal_agent():
-            self.status.text = (
-                "Base application started by the internal diagnostic agent."
-            )
-            return
+        """Start diagnostics alongside Base without closing or relaunching its UI."""
         try:
             from jnius import autoclass
             service_class = autoclass(SERVICE_CLASS)
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             service_class.start(activity, "")
             self._append_report(
-                "base_bootstrap_handoff_to_internal_agent",
+                "internal_diagnostic_service_start_requested",
                 pid=os.getpid(),
                 process_name=self._process_name(),
-                initial_activity_will_finish=True,
+                base_ui_kept_open=True,
             )
-            Clock.schedule_once(lambda *_: activity.finish(), 0.15)
             self.status.text = (
-                "Diagnostic agent starting first; waiting for self-diagnostic "
-                "and bridge handshake..."
+                "Diagnostic agent requested. YJ-64 Base remains open while "
+                "diagnostic events are forwarded to Monitor."
             )
         except Exception as exc:
+            self._append_report(
+                "internal_diagnostic_service_start_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                pid=os.getpid(),
+            )
             self.status.text = (
-                "Diagnostic agent start failed: "
+                "Diagnostic service start failed: "
                 f"{type(exc).__name__}: {exc}"
             )
 
