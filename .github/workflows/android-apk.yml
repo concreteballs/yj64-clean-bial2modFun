@@ -37,6 +37,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -73,11 +78,6 @@ jobs:
           fi
           stat -c '%n %s bytes' "$APK"
           sha256sum "$APK"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: false
 
       - name: Build standalone YJ-64 Monitor APK
         run: |
