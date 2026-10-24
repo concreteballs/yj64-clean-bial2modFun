@@ -14,13 +14,13 @@ android.ndk_api = 24
 android.ndk = 25b
 android.accept_sdk_license = True
 android.archs = arm64-v8a
-android.permissions = INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_SPECIAL_USE,RECORD_AUDIO,READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,READ_MEDIA_VIDEO,READ_MEDIA_AUDIO
+android.permissions = INTERNET,FOREGROUND_SERVICE,FOREGROUND_SERVICE_SPECIAL_USE,RECORD_AUDIO,READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,READ_MEDIA_VIDEO,READ_MEDIA_AUDIO,org.blackmirror.yj64monitor.permission.RECEIVE_REPORT
 services = internal:services/internal_monitor.py:foreground:sticky:foregroundServiceType=specialUse
 android.debug_artifact = apk
 android.add_src = android_src
 android.add_activities = org.blackmirror.blackmirror.MonitorActivity
 p4a.hook = ./p4a/hook.py
-android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.blackmirror\" /></queries><uses-permission android:name=\"org.blackmirror.yj64monitor.permission.RECEIVE_REPORT\" />"
+android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.blackmirror\" /></queries>"
 
 [buildozer]
 log_level = 2
