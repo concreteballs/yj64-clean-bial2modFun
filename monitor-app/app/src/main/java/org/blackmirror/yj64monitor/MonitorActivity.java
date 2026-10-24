@@ -150,8 +150,8 @@ public class MonitorActivity extends Activity {
                 worker.start();
             } catch (Exception e) {
                 appendEvent("internal_bridge_start_failed",
-                    new JSONObject().put("error_type", e.getClass().getName())
-                        .put("message", String.valueOf(e.getMessage())).toString());
+                    "{\"error_type\":\"" + esc(e.getClass().getName())
+                        + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
             }
         }
     }
@@ -164,8 +164,8 @@ public class MonitorActivity extends Activity {
             } catch (Exception e) {
                 if (!server.isClosed()) {
                     appendEvent("internal_bridge_accept_failed",
-                        new JSONObject().put("error_type", e.getClass().getName())
-                            .put("message", String.valueOf(e.getMessage())).toString());
+                        "{\"error_type\":\"" + esc(e.getClass().getName())
+                            + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
                 }
             }
         }
@@ -209,9 +209,9 @@ public class MonitorActivity extends Activity {
                     .put("agent", report.optString("agent", "unknown")).toString());
         } catch (Exception e) {
             appendEvent("internal_bridge_receive_failed",
-                new JSONObject().put("report_id", reportId)
-                    .put("error_type", e.getClass().getName())
-                    .put("message", String.valueOf(e.getMessage())).toString());
+                "{\"report_id\":\"" + esc(reportId)
+                    + "\",\"error_type\":\"" + esc(e.getClass().getName())
+                    + "\",\"message\":\"" + esc(String.valueOf(e.getMessage())) + "\"}");
         }
     }
 
