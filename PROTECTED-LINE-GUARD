@@ -4620,7 +4620,7 @@ android.debug_artifact = apk
 android.add_src = android_src
 android.add_activities = org.blackmirror.blackmirror.MonitorActivity
 p4a.hook = ./p4a/hook.py
-android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.blackmirror\" /></queries>"
+android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.yj64monitor\" /><provider android:authorities=\"org.blackmirror.yj64monitor.diagnostics\" /></queries>"
 
 [buildozer]
 log_level = 2
@@ -5915,7 +5915,7 @@ android {
     }
 }
 END ALLOWED
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=f1dcfb8a4dd2f5ca45ea70ef3b35e7cf3a77b651
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=573b7c02dba8629e350f5d909217adfed47fc145
 EXPECTED-GIT-BLOB-SHA:main.py=a4d5c5180e5deb5e1e719fd87cebe7f3c77098a8
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/DiagnosticReportProvider.java=d45ac523b622322ad5523cd499ad3ef23413d575
 EXPECTED-GIT-BLOB-SHA:config/bridge.json=d4733db70a087a9d9c6077c739b156d514a85964
