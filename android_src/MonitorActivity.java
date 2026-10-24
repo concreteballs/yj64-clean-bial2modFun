@@ -256,7 +256,7 @@ public class MonitorActivity extends Activity {
         }
         final String timestamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
         // Keep one stable URL so the user can share it once and refresh the latest report.
-        final String reportPath = "reports/latest-report.jsonl";
+        final String reportPath = "Report";
         status.setText(identityText() + "\n\nUploading report to GitHub...");
         new Thread(() -> {
             HttpURLConnection connection = null;
@@ -338,8 +338,10 @@ public class MonitorActivity extends Activity {
                 org.json.JSONObject response = new org.json.JSONObject(responseText);
                 org.json.JSONObject content = response.optJSONObject("content");
                 String htmlUrl = content == null ? "" : content.optString("html_url", "");
-                if (htmlUrl.isEmpty()) {
-                    throw new IOException("GitHub accepted upload but returned no file URL");
+                String returnedPath = content == null ? "" : content.optString("path", "");
+                if (!"Report".equals(returnedPath) || htmlUrl.isEmpty()
+                    || !htmlUrl.contains("/blob/" + GITHUB_BRANCH + "/Report")) {
+                    throw new IOException("GitHub response did not confirm the expected Report path and branch");
                 }
                 final String publishedUrl = htmlUrl;
                 append("github_report_upload_succeeded",

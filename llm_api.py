@@ -6,7 +6,9 @@ Participants send a route marker and mode; provider-specific HTTP details stay h
 from __future__ import annotations
 
 import json
+import random
 import ssl
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -41,37 +43,63 @@ def _request(
     headers: dict[str, str],
     timeout: float = 30.0,
     payload: dict[str, Any] | None = None,
+    report: Any = None,
 ) -> dict[str, Any]:
-    try:
-        context = ssl.create_default_context()
+    """Perform a bounded API request with cautious transient-error retries."""
+    max_attempts = 5
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
         try:
-            import certifi
-            context = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            pass
-        body = None
-        request_headers = {"Accept": "application/json", **headers}
-        if payload is not None:
-            body = json.dumps(payload).encode("utf-8")
-            request_headers["Content-Type"] = "application/json"
-        with urlopen(
-            Request(url, headers=request_headers, method=method, data=body),
-            timeout=timeout,
-            context=context,
-        ) as response:
-            raw = response.read().decode("utf-8")
-            parsed = json.loads(raw)
-            if not isinstance(parsed, dict):
-                raise RuntimeError("API returned JSON that is not an object")
-            return parsed
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {exc.code}: {detail[:800]}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"Network error: {exc.reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("API returned invalid JSON") from exc
-
+            context = ssl.create_default_context()
+            try:
+                import certifi
+                context = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                pass
+            body = None
+            request_headers = {"Accept": "application/json", **headers}
+            if payload is not None:
+                body = json.dumps(payload).encode("utf-8")
+                request_headers["Content-Type"] = "application/json"
+            with urlopen(Request(url, headers=request_headers, method=method, data=body), timeout=timeout, context=context) as response:
+                parsed = json.loads(response.read().decode("utf-8"))
+                if not isinstance(parsed, dict):
+                    raise RuntimeError("API returned JSON that is not an object")
+                return parsed
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            last_error = exc
+            if exc.code not in {429, 503} or attempt >= max_attempts:
+                raise RuntimeError(f"HTTP {exc.code} after {attempt} attempt(s): {detail[:800]}") from exc
+            # Google recommends bounded exponential backoff for transient UNAVAILABLE
+            # responses. Honour numeric Retry-After when present, then add jitter.
+            delay = min(2 ** (attempt - 1), 16)
+            retry_after = (exc.headers or {}).get("Retry-After", "").strip()
+            try:
+                server_delay = max(0.0, float(retry_after))
+                delay = min(max(delay, server_delay), 30.0)
+            except (TypeError, ValueError):
+                pass
+            jitter = random.uniform(0.0, min(1.0, delay * 0.25))
+            wait_seconds = delay + jitter
+            _report(
+                report, "gateway_retry_scheduled",
+                http_status=exc.code,
+                attempt=attempt,
+                next_attempt=attempt + 1,
+                max_attempts=max_attempts,
+                delay_seconds=round(wait_seconds, 2),
+                error_detail=detail[:300],
+            )
+            time.sleep(wait_seconds)
+        except URLError as exc:
+            last_error = exc
+            if method.upper() != "GET" or attempt >= max_attempts:
+                raise RuntimeError(f"Network error after {attempt} attempt(s): {exc.reason}") from exc
+            time.sleep(min(2 ** (attempt - 1), 4))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("API returned invalid JSON") from exc
+    raise RuntimeError(f"API request failed after {max_attempts} attempts: {last_error}")
 
 def _route_id(route_id: str | None = None, participant_name: str = "Owner") -> str:
     if route_id:
@@ -499,33 +527,51 @@ def generate_response(
             })
         api_method = "chat_completions"
 
+    request_body_bytes = len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    payload_history = (
+        payload.get("messages") or payload.get("contents")
+        or payload.get("input") or payload.get("inputs") or []
+    )
+    request_history_count = len(payload_history) if isinstance(payload_history, list) else 0
+    request_started = time.monotonic()
+    request_metrics = {
+        "request_body_bytes": request_body_bytes,
+        "history_count": request_history_count,
+    }
     _report(
         report, "gateway_request_prepared",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
         http_method="POST", endpoint=url, prompt=prompt,
-        history_count=len(history or []),
+        **request_metrics,
     )
     _report(
         report, "gateway_request_sending",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
+        **request_metrics,
     )
     try:
-        data = _request("POST", url, headers, payload=payload)
+        data = _request("POST", url, headers, payload=payload, report=report)
     except Exception as exc:
         _report(
             report, "gateway_request_failed",
             operation_id=operation, route_id=selected_route,
             provider=provider, model=model, mode=selected_mode,
             api_method=api_method, endpoint=url,
+            duration_ms=round((time.monotonic() - request_started) * 1000, 2),
+            **request_metrics,
             error_type=type(exc).__name__, error=str(exc),
         )
         raise
+    duration_ms = round((time.monotonic() - request_started) * 1000, 2)
     _report(
         report, "gateway_http_response_received",
         operation_id=operation, route_id=selected_route,
         provider=provider, model=model, api_method=api_method,
+        duration_ms=duration_ms, **request_metrics,
     )
 
     response_text = (

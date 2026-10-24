@@ -122,6 +122,12 @@ class MessageDistributor:
             history=history,
             operation_id=operation_id,
         )
+        returned_route = str(result.get("route_id") or "")
+        if returned_route and returned_route != route_id:
+            raise RuntimeError(
+                f"{participant_name} route mismatch: requested {route_id}, "
+                f"received {returned_route}; response rejected to prevent silent fallback"
+            )
         if report is not None:
             report(
                 "distributor_response_returned",
