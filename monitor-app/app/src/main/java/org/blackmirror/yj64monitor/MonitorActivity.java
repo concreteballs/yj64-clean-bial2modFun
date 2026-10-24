@@ -212,7 +212,7 @@ public class MonitorActivity extends Activity {
     }
 
     private String readTrace(ApplicationExitInfo info) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return "";
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return "";
         try (InputStream input = info.getTraceInputStream()) {
             if (input == null) return "";
             ByteArrayOutputStream output = new ByteArrayOutputStream();
