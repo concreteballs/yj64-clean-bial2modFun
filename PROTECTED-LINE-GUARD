@@ -27,6 +27,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import threading
+import traceback
 import time
 import uuid
 from pathlib import Path
@@ -236,6 +239,11 @@ class YJ64BaseApp(App):
         self.report_path = Path(self.user_data_dir) / REPORT_RELATIVE_PATH
         from yj64_persistent_core import PersistentCore
         self.persistent_core = PersistentCore(self.user_data_dir)
+        self._previous_excepthook = sys.excepthook
+        sys.excepthook = self._handle_uncaught_exception
+        self._previous_thread_excepthook = getattr(threading, "excepthook", None)
+        if hasattr(threading, "excepthook"):
+            threading.excepthook = self._handle_uncaught_thread_exception
         self._archive_export_path = None
         self._archive_restore_prompt_path = Path(self.user_data_dir) / "yj64-restore-prompted.json"
         self.pid_path = Path(self.user_data_dir) / "yj64-main-process.pid"
@@ -2102,6 +2110,44 @@ class YJ64BaseApp(App):
         except OSError:
             pass
 
+    def _handle_uncaught_exception(self, exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+        try:
+            formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            self._append_report(
+                "python_uncaught_exception",
+                error_type=getattr(exc_type, "__name__", str(exc_type)),
+                message=str(exc_value),
+                traceback=formatted[-24000:],
+                pid=os.getpid(),
+                process_name=self._process_name(),
+                thread_name=threading.current_thread().name,
+            )
+        except Exception:
+            pass
+        previous = getattr(self, "_previous_excepthook", None)
+        if previous is not None and previous is not self._handle_uncaught_exception:
+            previous(exc_type, exc_value, exc_tb)
+
+    def _handle_uncaught_thread_exception(self, args: Any) -> None:
+        try:
+            formatted = "".join(traceback.format_exception(
+                args.exc_type, args.exc_value, args.exc_traceback
+            ))
+            self._append_report(
+                "python_uncaught_thread_exception",
+                error_type=getattr(args.exc_type, "__name__", str(args.exc_type)),
+                message=str(args.exc_value),
+                traceback=formatted[-24000:],
+                pid=os.getpid(),
+                process_name=self._process_name(),
+                thread_name=getattr(args.thread, "name", "unknown"),
+            )
+        except Exception:
+            pass
+        previous = getattr(self, "_previous_thread_excepthook", None)
+        if previous is not None:
+            previous(args)
+
     def _open_monitor(self, *_: Any) -> None:
         self._append_report(
             "internal_monitor_window_requested",
@@ -2890,6 +2936,13 @@ class YJ64BaseApp(App):
             service_class = autoclass(SERVICE_CLASS)
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             service_class.start(activity, "")
+            self._append_report(
+                "base_bootstrap_handoff_to_internal_agent",
+                pid=os.getpid(),
+                process_name=self._process_name(),
+                initial_activity_will_finish=True,
+            )
+            Clock.schedule_once(lambda *_: activity.finish(), 0.15)
             self.status.text = (
                 "Diagnostic agent starting first; waiting for self-diagnostic "
                 "and bridge handshake..."
@@ -2935,11 +2988,320 @@ class YJ64BaseApp(App):
 
 
 YJ64BaseApp().run()
-
 END ALLOWED
 
 ============================================================
 🟡 ИЗМЕНЕНИЕ: LLM API — центральный маршрутизатор и конфигурационные ячейки.
+FILE: services/internal_monitor.py BEGIN ALLOWED
+"""Embedded internal diagnostic agent for the YJ-64 base application."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+from urllib import request
+
+from jnius import autoclass
+
+
+SCHEMA = "yj64.diagnostic.v1"
+SERVICE_LAUNCH_FLAG = "yj64.internal_agent_launch"
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "bridge.json"
+
+
+def load_config() -> dict[str, Any]:
+    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def write_status(service: Any, payload: dict[str, Any]) -> None:
+    path = Path(str(service.getFilesDir())) / "diagnostic-agent-status.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def spool_path(service: Any, filename: str) -> Path:
+    return Path(str(service.getFilesDir())) / filename
+
+
+def make_report(agent_id: str, event: str, **data: Any) -> dict[str, Any]:
+    return {
+        "schema": SCHEMA,
+        "agent": agent_id,
+        "event": event,
+        "timestamp_ms": int(time.time() * 1000),
+        "report_id": uuid.uuid4().hex,
+        "data": data,
+    }
+
+
+def append_spool(service: Any, path: Path, report: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(report, sort_keys=True) + "\n")
+
+
+def send_bridge(config: dict[str, Any], report: dict[str, Any]) -> bool:
+    """Send a report through the monitor's signature-protected Android provider."""
+    try:
+        bridge = config["bridge"]
+        context = autoclass("org.kivy.android.PythonService").mService
+        Uri = autoclass("android.net.Uri")
+        Bundle = autoclass("android.os.Bundle")
+        extras = Bundle()
+        extras.putString("report_json", json.dumps(report, sort_keys=True))
+        uri = Uri.parse(
+            "content://" + str(bridge["authority"])
+        )
+        result = context.getContentResolver().call(
+            uri, str(bridge["method"]), None, extras
+        )
+        if result is None:
+            return False
+        report_id = str(report.get("report_id") or report.get("message_id") or "")
+        return (
+            bool(report_id)
+            and bool(result.getBoolean("ok", False))
+            and str(result.getString("report_id") or "") == report_id
+        )
+    except Exception:
+        return False
+
+
+def send_with_retry(config: dict[str, Any], report: dict[str, Any]) -> bool:
+    # Android IPC returns immediately when the monitor is installed and
+    # acknowledges durable persistence. The tail-forwarder retries local records.
+    return send_bridge(config, report)
+
+
+def upload_https(
+    endpoint: str,
+    report: dict[str, Any],
+    timeout: float = 5.0,
+) -> bool:
+    """Upload a report when a real HTTPS endpoint is configured."""
+
+    if not endpoint:
+        return False
+
+    try:
+        body = json.dumps(report).encode("utf-8")
+        req = request.Request(
+            endpoint,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with request.urlopen(req, timeout=timeout) as response:
+            return 200 <= int(response.status) < 300
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def self_diagnostic(config: dict[str, Any], service: Any) -> dict[str, Any]:
+    """Run deterministic startup checks before handing control to the base app."""
+
+    checks: dict[str, Any] = {}
+
+    try:
+        config["agent_id"]
+        config["target_package"]
+        config["bridge"]["authority"]
+        config["bridge"]["method"]
+        checks["configuration"] = "ok"
+    except (KeyError, TypeError):
+        checks["configuration"] = "invalid"
+
+    try:
+        probe = Path(str(service.getFilesDir())) / ".diagnostic_write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        checks["storage"] = "ok"
+    except OSError:
+        checks["storage"] = "unavailable"
+
+    try:
+        package_manager = service.getPackageManager()
+        visible = (
+            package_manager.getLaunchIntentForPackage(
+                str(config["target_package"])
+            )
+            is not None
+        )
+        checks["target_visibility"] = (
+            "visible" if visible else "not_visible"
+        )
+    except Exception as exc:
+        checks["target_visibility"] = f"probe_error:{type(exc).__name__}"
+
+    checks["process"] = "ok"
+    return checks
+
+
+def launch_target(package_name: str) -> tuple[bool, str]:
+    """Hand control to the base application's main activity."""
+
+    try:
+        context = autoclass("org.kivy.android.PythonService").mService
+        package_manager = context.getPackageManager()
+        intent = package_manager.getLaunchIntentForPackage(package_name)
+
+        if intent is None:
+            return False, "target_package_not_installed"
+
+        Intent = autoclass("android.content.Intent")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intent.putExtra(SERVICE_LAUNCH_FLAG, True)
+        context.startActivity(intent)
+        return True, "launched"
+    except Exception as exc:
+        return False, f"launch_error:{type(exc).__name__}"
+
+
+def send_report_or_spool(
+    config: dict[str, Any],
+    service: Any,
+    spool: Path,
+    report: dict[str, Any],
+) -> bool:
+    """Prefer the external bridge and persist the report when it is unavailable."""
+
+    bridge_ok = send_with_retry(config, report)
+    if not bridge_ok:
+        append_spool(service, spool, report)
+
+    endpoint = str(config["report"].get("https_endpoint", ""))
+    if endpoint:
+        upload_https(endpoint, report)
+
+    return bridge_ok
+
+
+def forward_spool_reports(
+    config: dict[str, Any],
+    spool: Path,
+    offset: int,
+) -> int:
+    """Forward persisted base-app JSONL records in order; retain offset on failure."""
+    if not spool.is_file():
+        return 0
+    bridge = config["bridge"]
+    try:
+        with spool.open("r", encoding="utf-8") as handle:
+            handle.seek(offset)
+            while True:
+                line_start = handle.tell()
+                line = handle.readline()
+                if not line:
+                    return handle.tell()
+                try:
+                    report = json.loads(line)
+                except ValueError:
+                    # Skip a malformed or partial record without blocking later lines.
+                    offset = handle.tell()
+                    continue
+                if not isinstance(report, dict):
+                    offset = handle.tell()
+                    continue
+                delivered = send_bridge(config, report)
+                if not delivered:
+                    return line_start
+                offset = handle.tell()
+    except OSError:
+        return offset
+
+
+def run() -> None:
+    PythonService = autoclass("org.kivy.android.PythonService")
+    service = PythonService.mService
+    service.setAutoRestartService(True)
+
+    config = load_config()
+    agent_id = str(config["agent_id"])
+    spool = spool_path(service, str(config["report"]["spool_filename"]))
+
+    checks = self_diagnostic(config, service)
+    self_report = make_report(
+        agent_id,
+        "self_diagnostic",
+        checks=checks,
+        target_package=config["target_package"],
+    )
+    self_bridge_ok = send_report_or_spool(
+        config,
+        service,
+        spool,
+        self_report,
+    )
+
+    startup = make_report(
+        agent_id,
+        "internal_startup",
+        pid=os.getpid(),
+        python_version=sys.version.split()[0],
+        target_package=config["target_package"],
+        cwd=os.getcwd(),
+    )
+    startup_bridge_ok = send_report_or_spool(
+        config,
+        service,
+        spool,
+        startup,
+    )
+
+    launch_ok, launch_reason = launch_target(str(config["target_package"]))
+    launch_report = make_report(
+        agent_id,
+        "target_launch_result",
+        target_package=config["target_package"],
+        success=launch_ok,
+        reason=launch_reason,
+        bridge_received_self_diagnostic=self_bridge_ok,
+        bridge_received_startup=startup_bridge_ok,
+    )
+    launch_bridge_ok = send_report_or_spool(
+        config,
+        service,
+        spool,
+        launch_report,
+    )
+
+    write_status(
+        service,
+        {
+            "agent": agent_id,
+            "event": "target_launch_result",
+            "bridge_status": (
+                "connected"
+                if self_bridge_ok or startup_bridge_ok or launch_bridge_ok
+                else "spooled"
+            ),
+            "self_diagnostic": (
+                "ok"
+                if all(value in {"ok", "visible"} for value in checks.values())
+                else json.dumps(checks, sort_keys=True)
+            ),
+            "target_launch": launch_reason,
+            "target_success": launch_ok,
+            "launch_report_sent": launch_bridge_ok,
+        },
+    )
+
+    # The service and the Python UI share this app's private files directory.
+    # Stream Base JSONL events to the standalone monitor; if it is unavailable,
+    # keep the current offset so the same event is retried after the monitor opens.
+    report_offset = 0
+    while True:
+        report_offset = forward_spool_reports(config, spool, report_offset)
+        time.sleep(1.0)
+
+
+run()
+END ALLOWED
+
 FILE: llm_api.py BEGIN ALLOWED
 """Central YJ-64 LLM router.
 
@@ -4217,6 +4579,24 @@ END ALLOWED
 ============================================================ КОНЕЦ ОПЕРАЦИОННОГО СТОЛА
 
 
+FILE: config/bridge.json BEGIN ALLOWED
+{
+  "agent_id": "yj64-internal-diagnostic-agent",
+  "target_package": "org.blackmirror.blackmirror",
+  "bridge": {
+    "authority": "org.blackmirror.yj64monitor.diagnostics",
+    "method": "receive_report",
+    "connect_timeout_seconds": 1.0,
+    "retry_count": 3,
+    "retry_delay_seconds": 0.5
+  },
+  "report": {
+    "spool_filename": "yj64-reports/yj64-report.jsonl",
+    "https_endpoint": ""
+  }
+}
+END ALLOWED
+
 FILE: buildozer.spec BEGIN ALLOWED
 [app]
 title = YJ-64 Base
@@ -4224,7 +4604,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.21
+version = 0.1.22
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -4240,7 +4620,7 @@ android.debug_artifact = apk
 android.add_src = android_src
 android.add_activities = org.blackmirror.blackmirror.MonitorActivity
 p4a.hook = ./p4a/hook.py
-android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.blackmirror\" /></queries>"
+android.p4a_extra_args = --cflags="-Wno-error=implicit-function-declaration" --extra-manifest-xml="<queries><package android:name=\"org.blackmirror.blackmirror\" /></queries><uses-permission android:name=\"org.blackmirror.yj64monitor.permission.RECEIVE_REPORT\" />"
 
 [buildozer]
 log_level = 2
@@ -4387,7 +4767,7 @@ public class MonitorActivity extends Activity {
     private static final String GITHUB_KEY_ALIAS = "yj64_github_report_upload_key";
     private static final String GITHUB_TOKEN_FILE = "yj64-github-token.enc";
     private static final String GITHUB_OWNER = "concreteballs";
-    private static final String GITHUB_REPO = "yj64-clean";
+    private static final String GITHUB_REPO = "yj64-clean-bial2modFun";
     private static final String GITHUB_BRANCH = "main";
 
     private SecretKey githubEncryptionKey() throws Exception {
@@ -4792,7 +5172,6 @@ public class MonitorActivity extends Activity {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }
-
 END ALLOWED
 
 FILE: .github/workflows/android-apk.yml BEGIN ALLOWED
@@ -4940,6 +5319,7 @@ FILE: monitor-app/app/src/main/AndroidManifest.xml BEGIN ALLOWED
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <permission android:name="org.blackmirror.yj64monitor.permission.RECEIVE_REPORT" android:protectionLevel="signature" />
     <queries>
         <package android:name="org.blackmirror.blackmirror" />
     </queries>
@@ -4957,6 +5337,11 @@ FILE: monitor-app/app/src/main/AndroidManifest.xml BEGIN ALLOWED
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name=".DiagnosticReportProvider"
+            android:authorities="org.blackmirror.yj64monitor.diagnostics"
+            android:exported="true"
+            android:permission="org.blackmirror.yj64monitor.permission.RECEIVE_REPORT" />
     </application>
 </manifest>
 END ALLOWED
@@ -5423,9 +5808,94 @@ public class MonitorActivity extends Activity {
             .replace("\n", "\\n").replace("\r", "\\r");
     }
 }
-
 END ALLOWED
 
+
+FILE: monitor-app/app/src/main/java/org/blackmirror/yj64monitor/DiagnosticReportProvider.java BEGIN ALLOWED
+package org.blackmirror.yj64monitor;
+
+import android.content.ContentProvider;
+import android.content.ContentValues;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Bundle;
+
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+
+public class DiagnosticReportProvider extends ContentProvider {
+    @Override public boolean onCreate() {
+        return true;
+    }
+
+    @Override public Bundle call(String method, String arg, Bundle extras) {
+        Bundle result = new Bundle();
+        if (!"receive_report".equals(method)) {
+            result.putBoolean("ok", false);
+            result.putString("error", "unsupported_method");
+            return result;
+        }
+
+        String reportId = "";
+        try {
+            if (extras == null) throw new IllegalArgumentException("extras_missing");
+            String raw = extras.getString("report_json");
+            if (raw == null || raw.length() > 131072) {
+                throw new IllegalArgumentException("report_missing_or_oversized");
+            }
+            JSONObject report = new JSONObject(raw);
+            reportId = report.optString("report_id",
+                report.optString("message_id", ""));
+            if (reportId.isEmpty()) throw new IllegalArgumentException("report_id_missing");
+            report.put("_external_monitor_received_at_ms", System.currentTimeMillis());
+
+            File directory = new File(getContext().getFilesDir(), "yj64-reports");
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw new IllegalStateException("report_directory_unavailable");
+            }
+            File file = new File(directory, "yj64-report.jsonl");
+            try (FileOutputStream out = new FileOutputStream(file, true)) {
+                out.write((report.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                out.getFD().sync();
+            }
+            result.putBoolean("ok", true);
+            result.putString("report_id", reportId);
+        } catch (Exception error) {
+            result.putBoolean("ok", false);
+            result.putString("report_id", reportId);
+            result.putString("error_type", error.getClass().getName());
+            result.putString("error", String.valueOf(error.getMessage()));
+        }
+        return result;
+    }
+
+    @Override public Cursor query(Uri uri, String[] projection, String selection,
+                                  String[] selectionArgs, String sortOrder) {
+        return null;
+    }
+
+    @Override public String getType(Uri uri) {
+        return null;
+    }
+
+    @Override public Uri insert(Uri uri, ContentValues values) {
+        return null;
+    }
+
+    @Override public int delete(Uri uri, String selection, String[] selectionArgs) {
+        return 0;
+    }
+
+    @Override public int update(Uri uri, ContentValues values, String selection,
+                                String[] selectionArgs) {
+        return 0;
+    }
+}
+END ALLOWED
 
 FILE: monitor-app/app/build.gradle BEGIN ALLOWED
 plugins {
@@ -5440,23 +5910,25 @@ android {
         applicationId 'org.blackmirror.yj64monitor'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '1.0.2'
+        versionCode 4
+        versionName '1.0.3'
     }
 }
-
 END ALLOWED
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=26cbbe6f546d2f2f8e14c668730ea340646f13c0
-EXPECTED-GIT-BLOB-SHA:main.py=3647888218d7ea95e30298a22f9fae04c6180c9a
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=eb9ff31dd0291e56382eee3cc82c336d7ffeb1a1
+EXPECTED-GIT-BLOB-SHA:main.py=a4d5c5180e5deb5e1e719fd87cebe7f3c77098a8
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/DiagnosticReportProvider.java=d45ac523b622322ad5523cd499ad3ef23413d575
+EXPECTED-GIT-BLOB-SHA:config/bridge.json=d4733db70a087a9d9c6077c739b156d514a85964
+EXPECTED-GIT-BLOB-SHA:services/internal_monitor.py=b5ecd198548072a0300d6c63294ebb9baa9370ea
 EXPECTED-GIT-BLOB-SHA:llm_api.py=32571fd86a2e7207257c4ce8742d1d9f0755b115
 EXPECTED-GIT-BLOB-SHA:llm_settings.py=22cef481708a66ce544d395d2e655c3b9022da08
-EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=41db6a5819d8f5134e9f5abdcc3a54a42993bc6a
+EXPECTED-GIT-BLOB-SHA:android_src/MonitorActivity.java=b5c45286c6536eb02bb9602c51282764fee50249
 EXPECTED-GIT-BLOB-SHA:tools/verify_guard.py=887269e44f5fbffc093de87d02e7bf960f3e138b
 EXPECTED-GIT-BLOB-SHA:message_distributor.py=55de5e6b4ae426900137e58b66d26173e34826e5
 EXPECTED-GIT-BLOB-SHA:.github/workflows/ci.yml=295307267609aea347e7b1ee7c668a5139d96f9c
 EXPECTED-GIT-BLOB-SHA:.github/workflows/android-apk.yml=480684487be8f3059b6cdb49392f73c4d047b069
 EXPECTED-GIT-BLOB-SHA:monitor-app/settings.gradle=8947fd008921eaa4e6667b75bfde20d21d3572ae
 EXPECTED-GIT-BLOB-SHA:monitor-app/build.gradle=5b7ccba7c566afb5057eaea1b10b99b083851fe4
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=ce04232cadffee5c51ed1ad432531f2932b33348
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/AndroidManifest.xml=8707281c53fb3be98172e9ab65550e5593464ba6
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/MonitorActivity.java=05cb0426b0e5231dec6a3a58f9feef583ec8fa1f
-EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=0b4c259d5c4e33813454c34ca508a0f213d4d8a1
+EXPECTED-GIT-BLOB-SHA:monitor-app/app/build.gradle=5e34552a657a7a88b8aca545d8d0365c0d304548
