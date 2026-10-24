@@ -136,7 +136,7 @@ public class MonitorActivity extends Activity {
     private static final String GITHUB_KEY_ALIAS = "yj64_github_report_upload_key";
     private static final String GITHUB_TOKEN_FILE = "yj64-github-token.enc";
     private static final String GITHUB_OWNER = "concreteballs";
-    private static final String GITHUB_REPO = "yj64-clean";
+    private static final String GITHUB_REPO = "yj64-clean-bial2modFun";
     private static final String GITHUB_BRANCH = "main";
 
     private SecretKey githubEncryptionKey() throws Exception {
