@@ -19,7 +19,7 @@
 ТОЧКА ЗАПУСКА BUILD: Android Build должен запускаться только изменением PROTECTED-LINE-GUARD. Изменения любых других файлов сами по себе не должны автоматически запускать Android Build. Перед сборкой CI обязан проверить точное совпадение каждого разрешённого фрагмента Guard с соответствующим рабочим файлом. При расхождении Build должен завершиться до build-time patching.
 ПЕРЕД КАЖДЫМ РЕДАКТИРОВАНИЕМ: Сначала показать пользователю предлагаемые изменения и получить явное согласование. Не редактировать рабочий файл до согласования.
 ============================================================ НАЧАЛО ОПЕРАЦИОННОГО СТОЛА
-🟢 ГОТОВО К ПРОВЕРКЕ: отдельный YJ-64 Monitor APK и базовый APK синхронизированы с Guard; запускается сборка обоих APK.
+🟡 ИСПРАВЛЕНИЕ СТАРТА YJ-64 Base: добавлены отсутствовавшие chat_workspace.py и yj64_persistent_core.py; версия Base повышена до 0.1.25. Сборка разрешена только после синхронизации этих файлов и buildozer.spec с Guard.
 FILE: main.py BEGIN ALLOWED
 """YJ-64 minimal base application with an embedded diagnostic agent."""
 
@@ -4527,7 +4527,256 @@ def main() -> int:
                 f"is {actual.count(expected)}, expected 1"
             )
 
-    marker = "EXPECTED-GIT-BLOB-SHA:"
+    marker = "
+FILE: chat_workspace.py BEGIN ALLOWED
+"""Persistent local chat, skills, and agent workspace for YJ-64."""
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+
+class ChatWorkspace:
+    def __init__(self, user_data_dir: str | Path):
+        self.root = Path(user_data_dir) / "yj64-workspace"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.chats_dir = self.root / "chats"
+        self.agents_dir = self.root / "agents"
+        self.histories_dir = self.root / "histories"
+        for folder in (self.chats_dir, self.agents_dir, self.histories_dir):
+            folder.mkdir(parents=True, exist_ok=True)
+        self.skills_path = self.root / "skills.md"
+        if not self.skills_path.exists():
+            self.skills_path.write_text("# YJ-64 local skills\n", encoding="utf-8")
+        self.index_path = self.root / "chats.json"
+        if not self.index_path.exists():
+            self._write_json(self.index_path, {"chats": []})
+        if not self.list_chats():
+            self.create_chat("Общий чат")
+
+    @staticmethod
+    def _write_json(path: Path, value: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix(path.suffix + ".tmp")
+        temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(path)
+
+    @staticmethod
+    def _read_json(path: Path, fallback: Any) -> Any:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return fallback
+
+    def list_chats(self) -> list[dict[str, Any]]:
+        data = self._read_json(self.index_path, {"chats": []})
+        chats = data.get("chats", []) if isinstance(data, dict) else []
+        return sorted([item for item in chats if isinstance(item, dict)], key=lambda x: x.get("updated_ms", 0), reverse=True)
+
+    def create_chat(self, title: str, parent_id: str | None = None) -> str:
+        chat_id = uuid.uuid4().hex
+        chats = self.list_chats()
+        chats.append({"id": chat_id, "title": str(title or "Новый чат"), "parent_id": parent_id, "created_ms": int(time.time() * 1000), "updated_ms": int(time.time() * 1000)})
+        self._write_json(self.index_path, {"chats": chats})
+        self.save_messages(chat_id, [])
+        return chat_id
+
+    def _messages_path(self, chat_id: str) -> Path:
+        safe_id = "".join(c for c in str(chat_id) if c.isalnum() or c in "-_")
+        if not safe_id:
+            raise ValueError("Invalid chat id")
+        return self.chats_dir / (safe_id + ".json")
+
+    def load_messages(self, chat_id: str) -> list[dict[str, str]]:
+        data = self._read_json(self._messages_path(chat_id), [])
+        if not isinstance(data, list):
+            return []
+        return [{"role": str(x.get("role", "assistant")), "content": str(x.get("content", ""))} for x in data if isinstance(x, dict)]
+
+    def save_messages(self, chat_id: str, messages: list[dict[str, Any]]) -> None:
+        normalized = [{"role": str(x.get("role", "assistant")), "content": str(x.get("content", ""))} for x in messages if isinstance(x, dict)]
+        self._write_json(self._messages_path(chat_id), normalized)
+        chats = self.list_chats()
+        now = int(time.time() * 1000)
+        found = False
+        for chat in chats:
+            if str(chat.get("id")) == str(chat_id):
+                chat["updated_ms"] = now
+                if normalized:
+                    first = next((m["content"] for m in normalized if m["role"] == "user" and m["content"].strip()), "")
+                    if first and chat.get("title") in ("Общий чат", "Новый чат", "Untitled chat"):
+                        chat["title"] = first[:48]
+                found = True
+                break
+        if found:
+            self._write_json(self.index_path, {"chats": chats})
+
+    def _history_path(self, name: str) -> Path:
+        key = "".join(c for c in str(name) if c.isalnum() or c in "-_ ").strip().replace(" ", "_")
+        return self.histories_dir / ((key or "participant") + ".json")
+
+    def load_named_history(self, name: str) -> list[dict[str, str]]:
+        data = self._read_json(self._history_path(name), [])
+        return [{"role": str(x.get("role", "assistant")), "content": str(x.get("content", ""))} for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    def save_named_history(self, name: str, history: list[dict[str, Any]]) -> None:
+        self._write_json(self._history_path(name), [{"role": str(x.get("role", "assistant")), "content": str(x.get("content", ""))} for x in history if isinstance(x, dict)])
+
+    def read_skills(self) -> str:
+        try:
+            return self.skills_path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def write_skills(self, text: str) -> None:
+        self.skills_path.write_text(str(text), encoding="utf-8")
+
+    def _agent_path(self, agent_id: str) -> Path:
+        safe_id = "".join(c for c in str(agent_id) if c.isalnum() or c in "-_")
+        if not safe_id:
+            raise ValueError("Invalid agent id")
+        return self.agents_dir / (safe_id + ".json")
+
+    def create_agent(self, name: str, instructions: str, runner: str = "Participant 1") -> dict[str, Any]:
+        agent = {"id": uuid.uuid4().hex, "name": str(name), "instructions": str(instructions), "runner": str(runner), "created_ms": int(time.time() * 1000), "private_messages": [], "code_candidate": "", "sandbox_status": "pending", "sandbox_note": ""}
+        self.save_agent(agent)
+        return agent
+
+    def save_agent(self, agent: dict[str, Any]) -> None:
+        if not isinstance(agent, dict) or not agent.get("id"):
+            raise ValueError("Agent requires id")
+        self._write_json(self._agent_path(str(agent["id"])), agent)
+
+    def load_agent(self, agent_id: str) -> dict[str, Any] | None:
+        data = self._read_json(self._agent_path(agent_id), None)
+        return data if isinstance(data, dict) else None
+
+    def list_agents(self) -> list[dict[str, Any]]:
+        result = []
+        for path in self.agents_dir.glob("*.json"):
+            data = self._read_json(path, None)
+            if isinstance(data, dict):
+                result.append(data)
+        return sorted(result, key=lambda x: x.get("created_ms", 0), reverse=True)
+
+    def save_agent_message(self, agent_id: str, role: str, content: str) -> None:
+        agent = self.load_agent(agent_id)
+        if agent is None:
+            return
+        messages = agent.setdefault("private_messages", [])
+        messages.append({"role": str(role), "content": str(content), "timestamp_ms": int(time.time() * 1000)})
+        agent["private_messages"] = messages[-1000:]
+        self.save_agent(agent)
+END ALLOWED
+
+FILE: yj64_persistent_core.py BEGIN ALLOWED
+"""Secondary persistent event ledger and portable YJ-64 archive."""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import time
+import zipfile
+from pathlib import Path
+from typing import Any
+
+
+class PersistentCore:
+    def __init__(self, user_data_dir: str | Path):
+        self.root = Path(user_data_dir)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.root / "yj64-persistent-core.sqlite3"
+        self.workspace_path = self.root / "yj64-workspace"
+        self.report_path = self.root / "yj64-reports" / "yj64-report.jsonl"
+        with self._connect() as db:
+            db.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp_ms INTEGER NOT NULL, event TEXT NOT NULL, data_json TEXT NOT NULL)")
+
+    def _connect(self):
+        db = sqlite3.connect(str(self.db_path), timeout=5)
+        db.execute("PRAGMA journal_mode=WAL")
+        return db
+
+    def record_event(self, event: str, data: dict[str, Any] | None = None) -> None:
+        try:
+            with self._connect() as db:
+                db.execute("INSERT INTO events(timestamp_ms,event,data_json) VALUES(?,?,?)", (int(time.time() * 1000), str(event), json.dumps(data or {}, ensure_ascii=False)))
+        except sqlite3.Error:
+            # The JSONL diagnostic report remains the primary event source.
+            return
+
+    def export_archive(self, destination: str | Path) -> Path:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temp = destination.with_suffix(destination.suffix + ".tmp")
+        manifest = {"schema": "yj64.archive.v1", "created_ms": int(time.time() * 1000), "files": []}
+        with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in (self.workspace_path, self.report_path):
+                if path.is_file():
+                    arcname = str(path.relative_to(self.root))
+                    archive.write(path, arcname)
+                    manifest["files"].append(arcname)
+                elif path.is_dir():
+                    for child in path.rglob("*"):
+                        if child.is_file() and not child.is_symlink():
+                            arcname = str(child.relative_to(self.root))
+                            archive.write(child, arcname)
+                            manifest["files"].append(arcname)
+            try:
+                with self._connect() as db:
+                    rows = db.execute("SELECT timestamp_ms,event,data_json FROM events ORDER BY id").fetchall()
+                events_path = self.root / "yj64-events-export.json"
+                events_path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+                archive.write(events_path, "yj64-events-export.json")
+                events_path.unlink(missing_ok=True)
+                manifest["files"].append("yj64-events-export.json")
+            except sqlite3.Error:
+                pass
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        if not zipfile.is_zipfile(temp) or temp.stat().st_size <= 0:
+            temp.unlink(missing_ok=True)
+            raise IOError("Archive validation failed: ZIP is empty or invalid")
+        os.replace(temp, destination)
+        return destination
+
+    def import_archive(self, source: str | Path) -> int:
+        source = Path(source)
+        if not zipfile.is_zipfile(source):
+            raise ValueError("Selected file is not a valid ZIP archive")
+        allowed_roots = ("yj64-workspace/", "yj64-reports/")
+        count = 0
+        with zipfile.ZipFile(source, "r") as archive:
+            bad = archive.testzip()
+            if bad:
+                raise ValueError("Archive integrity check failed: " + bad)
+            names = archive.namelist()
+            if "manifest.json" not in names:
+                raise ValueError("Archive manifest is missing")
+            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+            if manifest.get("schema") != "yj64.archive.v1":
+                raise ValueError("Unsupported YJ-64 archive schema")
+            for info in archive.infolist():
+                name = info.filename
+                if info.is_dir() or name == "manifest.json" or name == "yj64-events-export.json":
+                    continue
+                if not name.startswith(allowed_roots) or Path(name).is_absolute() or ".." in Path(name).parts:
+                    raise ValueError("Archive contains an unsupported path")
+                target = self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                payload = archive.read(info)
+                temp = target.with_suffix(target.suffix + ".importing")
+                temp.write_bytes(payload)
+                os.replace(temp, target)
+                count += 1
+        return count
+END ALLOWED
+
+EXPECTED-GIT-BLOB-SHA:yj64_persistent_core.py=49dd728ed922ed3a197c6fd21ac88b247bd64a3a
+EXPECTED-GIT-BLOB-SHA:chat_workspace.py=f1e58e926b89ecf697c88c0fef28ddc4e1a95be4
+EXPECTED-GIT-BLOB-SHA:"
     for line in guard.splitlines():
         if not line.startswith(marker):
             continue
@@ -4575,7 +4824,7 @@ package.name = blackmirror
 package.domain = org.blackmirror
 source.dir = .
 source.include_exts = py,json,md,txt
-version = 0.1.24
+version = 0.1.25
 requirements = python3==3.10.11,hostpython3==3.10.11,kivy==2.3.0,pyjnius,android,sh<2.0,certifi,websockets
 orientation = portrait
 fullscreen = 0
@@ -5942,7 +6191,7 @@ android {
     }
 }
 END ALLOWED
-EXPECTED-GIT-BLOB-SHA:buildozer.spec=89191a9e939087a61c9c1bbb8d6c705bfd49bd02
+EXPECTED-GIT-BLOB-SHA:buildozer.spec=87658c24bfb8ad3356a08fd1c2ffe045bc97ed93
 EXPECTED-GIT-BLOB-SHA:main.py=c6f879ebaf60acba361f62229456a9fef5dc28f8
 EXPECTED-GIT-BLOB-SHA:monitor-app/app/src/main/java/org/blackmirror/yj64monitor/DiagnosticReportProvider.java=c632318b6ecb084aecbfe4814269d9d5716546e4
 EXPECTED-GIT-BLOB-SHA:config/bridge.json=d4733db70a087a9d9c6077c739b156d514a85964
